@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -45,6 +46,8 @@ class DefaultWorkoutRepository(
                 TrendMode.Monthly -> monthlyTrend(month, allDates)
             }
         }.flowOn(Dispatchers.Default)
+
+    override suspend fun getWorkoutDays(): List<WorkoutDay> = observeWorkoutDays().first()
 
     override suspend fun saveWorkoutDay(day: WorkoutDay) {
         val now = System.currentTimeMillis()

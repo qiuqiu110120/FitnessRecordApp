@@ -10,6 +10,7 @@ import com.example.fitnessrecord.model.TrendMode
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,6 +20,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -258,6 +267,41 @@ class HomeViewModel(
         }
     }
 
+    suspend fun exportWorkoutDataJson(): String = withContext(Dispatchers.Default) {
+        val workouts = workoutRepository.getWorkoutDays().sortedByDescending { it.date }
+        val payload = buildJsonObject {
+            put("schemaVersion", 1)
+            put("app", "FRA")
+            put("exportedAt", Instant.now().toString())
+            putJsonArray("workouts") {
+                workouts.forEach { day ->
+                    addJsonObject {
+                        put("date", day.date.toString())
+                        put("trainingType", day.trainingType)
+                        day.durationMinutes?.let { put("durationMinutes", it) }
+                        put("notes", day.notes)
+                        putJsonArray("actions") {
+                            day.actions.forEach { action ->
+                                addJsonObject {
+                                    put("name", action.name)
+                                    putJsonArray("sets") {
+                                        action.sets.forEach { set ->
+                                            addJsonObject {
+                                                set.reps?.let { put("reps", it) }
+                                                set.weightKg?.let { put("weightKg", it) }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        exportJson.encodeToString(JsonObject.serializer(), payload)
+    }
+
     private fun updateDraft(update: (WorkoutDay) -> WorkoutDay) {
         val current = editorDraft.value ?: WorkoutDay(selectedDate.value)
         val updated = update(current)
@@ -267,6 +311,10 @@ class HomeViewModel(
     }
 
     private fun newLocalId(): Long = -System.nanoTime()
+}
+
+private val exportJson = Json {
+    prettyPrint = true
 }
 
 enum class CalendarMode(val label: String) {

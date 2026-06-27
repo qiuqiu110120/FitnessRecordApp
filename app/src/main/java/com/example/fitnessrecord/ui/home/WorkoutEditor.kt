@@ -61,7 +61,7 @@ fun WorkoutEditorScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
+        item(key = "meta", contentType = "meta") {
             WorkoutMetaCard(
                 day = day,
                 onTrainingTypeChange = onTrainingTypeChange,
@@ -70,12 +70,12 @@ fun WorkoutEditorScreen(
             )
         }
 
-        item {
+        item(key = "header", contentType = "header") {
             WorkoutActionHeader(onAddAction = onAddAction)
         }
 
         if (customActions.isNotEmpty()) {
-            item {
+            item(key = "shortcuts", contentType = "shortcuts") {
                 CustomActionShortcuts(
                     actions = customActions,
                     onAddCustomAction = onAddCustomAction
@@ -84,10 +84,14 @@ fun WorkoutEditorScreen(
         }
 
         if (day.actions.isEmpty()) {
-            item { EmptyWorkoutCard(onAddAction) }
+            item(key = "empty", contentType = "empty") { EmptyWorkoutCard(onAddAction) }
         }
 
-        items(day.actions, key = { it.id }) { action ->
+        items(
+            items = day.actions,
+            key = { it.id },
+            contentType = { "workout-action" }
+        ) { action ->
             WorkoutActionCard(
                 action = action,
                 onNameChange = { onActionNameChange(action.id, it) },
@@ -98,7 +102,7 @@ fun WorkoutEditorScreen(
             )
         }
 
-        item {
+        item(key = "save", contentType = "save") {
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onSave
@@ -179,7 +183,11 @@ private fun CustomActionShortcuts(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("常用动作", style = MaterialTheme.typography.titleSmall)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(actions, key = { it.id }) { action ->
+            items(
+                items = actions,
+                key = { it.id },
+                contentType = { "shortcut" }
+            ) { action ->
                 OutlinedButton(onClick = { onAddCustomAction(action.name) }) {
                     Icon(Icons.Outlined.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))

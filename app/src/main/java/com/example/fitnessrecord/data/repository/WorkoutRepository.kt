@@ -14,6 +14,7 @@ interface WorkoutRepository {
     fun observeRecordDates(): Flow<Set<LocalDate>>
     fun observeCustomActions(): Flow<List<CustomAction>>
     fun observeTrend(mode: TrendMode, month: YearMonth): Flow<List<AttendancePoint>>
+    suspend fun getWorkoutDays(): List<WorkoutDay>
     suspend fun saveWorkoutDay(day: WorkoutDay)
     suspend fun deleteWorkoutDay(date: LocalDate)
     suspend fun saveCustomAction(action: CustomAction)

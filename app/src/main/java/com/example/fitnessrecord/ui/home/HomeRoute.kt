@@ -1,5 +1,8 @@
 package com.example.fitnessrecord.ui.home
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,13 +33,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.model.WorkoutDay
+import kotlinx.coroutines.launch
+import java.nio.charset.StandardCharsets
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -49,6 +56,25 @@ fun HomeRoute(
     val uiState by viewModel.uiState.collectAsState()
     val editorDraft = uiState.editorDraft
     var showActionSettings by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val json = viewModel.exportWorkoutDataJson()
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(json.toByteArray(StandardCharsets.UTF_8))
+                }
+            }.onSuccess {
+                Toast.makeText(context, "健身数据已导出", Toast.LENGTH_SHORT).show()
+            }.onFailure { error ->
+                Toast.makeText(context, error.message ?: "导出失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     when {
         showActionSettings -> {
@@ -56,7 +82,7 @@ fun HomeRoute(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
                     TopAppBar(
-                        title = { Text("自定义动作") },
+                        title = { Text("管理") },
                         navigationIcon = {
                             IconButton(onClick = { showActionSettings = false }) {
                                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
@@ -71,7 +97,8 @@ fun HomeRoute(
                     draftName = uiState.customActionDraft,
                     onDraftNameChange = viewModel::updateCustomActionDraft,
                     onSave = viewModel::saveCustomAction,
-                    onDelete = viewModel::deleteCustomAction
+                    onDelete = viewModel::deleteCustomAction,
+                    onExportData = { exportLauncher.launch("fra-workout-export.json") }
                 )
             }
         }
@@ -147,11 +174,11 @@ private fun HomeScreen(
             .fillMaxSize()
             .padding(innerPadding),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { HomeHeader(onOpenSettings = onOpenSettings) }
+        item(key = "header", contentType = "header") { HomeHeader(onOpenSettings = onOpenSettings) }
 
-        item {
+        item(key = "calendar", contentType = "calendar") {
             HomeCalendar(
                 mode = uiState.calendarMode,
                 visibleMonth = uiState.visibleMonth,
@@ -164,11 +191,11 @@ private fun HomeScreen(
             )
         }
 
-        item {
+        item(key = "selected-date", contentType = "selected-date") {
             SelectedDateCard(day = uiState.selectedWorkoutDay, onEditDate = onEditDate)
         }
 
-        item {
+        item(key = "trend", contentType = "trend") {
             TrendChartCard(
                 selectedMode = uiState.trendMode,
                 points = uiState.trend,
@@ -186,7 +213,7 @@ private fun HomeHeader(onOpenSettings: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("健身记录", style = MaterialTheme.typography.headlineSmall)
+            Text("FRA", style = MaterialTheme.typography.headlineSmall)
             Text(
                 text = "日历、动作和训练趋势",
                 style = MaterialTheme.typography.bodyMedium,
@@ -194,7 +221,7 @@ private fun HomeHeader(onOpenSettings: () -> Unit) {
             )
         }
         IconButton(onClick = onOpenSettings) {
-            Icon(Icons.Outlined.Settings, contentDescription = "自定义动作设置")
+            Icon(Icons.Outlined.Settings, contentDescription = "管理")
         }
     }
 }

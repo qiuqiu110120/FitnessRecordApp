@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -20,6 +21,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +38,7 @@ fun CustomActionSettingsScreen(
     onDraftNameChange: (String) -> Unit,
     onSave: () -> Unit,
     onDelete: (Long) -> Unit,
+    onExportData: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -44,7 +47,11 @@ fun CustomActionSettingsScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
+        item(key = "export", contentType = "export") {
+            ExportDataCard(onExportData = onExportData)
+        }
+
+        item(key = "editor", contentType = "editor") {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -71,12 +78,12 @@ fun CustomActionSettingsScreen(
             }
         }
 
-        item {
+        item(key = "saved-title", contentType = "title") {
             Text("已保存动作", style = MaterialTheme.typography.titleMedium)
         }
 
         if (actions.isEmpty()) {
-            item {
+            item(key = "empty", contentType = "empty") {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Text(
                         text = "还没有自定义动作。保存后可在训练编辑页快速添加。",
@@ -87,8 +94,36 @@ fun CustomActionSettingsScreen(
                 }
             }
         } else {
-            items(actions, key = { it.id }) { action ->
+            items(
+                items = actions,
+                key = { it.id },
+                contentType = { "custom-action" }
+            ) { action ->
                 CustomActionRow(action = action, onDelete = { onDelete(action.id) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExportDataCard(onExportData: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("数据导出", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "导出为 JSON 文件，包含训练日期、类型、时长、备注、动作、组数、次数和重量。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            OutlinedButton(onClick = onExportData) {
+                Icon(Icons.Outlined.FileDownload, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("导出健身数据")
             }
         }
     }
