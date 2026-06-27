@@ -70,21 +70,12 @@ fun WorkoutEditorScreen(
             )
         }
 
-        item(key = "header", contentType = "header") {
-            WorkoutActionHeader(onAddAction = onAddAction)
-        }
-
-        if (customActions.isNotEmpty()) {
-            item(key = "shortcuts", contentType = "shortcuts") {
-                CustomActionShortcuts(
-                    actions = customActions,
-                    onAddCustomAction = onAddCustomAction
-                )
-            }
+        item(key = "title", contentType = "title") {
+            WorkoutActionTitle()
         }
 
         if (day.actions.isEmpty()) {
-            item(key = "empty", contentType = "empty") { EmptyWorkoutCard(onAddAction) }
+            item(key = "empty", contentType = "empty") { EmptyWorkoutCard() }
         }
 
         items(
@@ -99,6 +90,14 @@ fun WorkoutEditorScreen(
                 onSetChange = { set, reps, weight -> onSetChange(action.id, set.id, reps, weight) },
                 onDeleteSet = { set -> onDeleteSet(action.id, set.id) },
                 onDeleteAction = { onDeleteAction(action.id) }
+            )
+        }
+
+        item(key = "add-actions", contentType = "add-actions") {
+            AddActionsPanel(
+                customActions = customActions,
+                onAddAction = onAddAction,
+                onAddCustomAction = onAddCustomAction
             )
         }
 
@@ -153,45 +152,61 @@ private fun WorkoutMetaCard(
 }
 
 @Composable
-private fun WorkoutActionHeader(onAddAction: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = "训练动作", style = MaterialTheme.typography.titleLarge)
-            Text(
-                text = "动作、组数、次数和重量会优先保存到本地 Room。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Button(onClick = onAddAction) {
-            Icon(Icons.Outlined.Add, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("动作")
-        }
+private fun WorkoutActionTitle() {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(text = "训练动作", style = MaterialTheme.typography.titleLarge)
+        Text(
+            text = "动作、组数、次数和重量会优先保存到本地 Room。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
 @Composable
-private fun CustomActionShortcuts(
-    actions: List<CustomAction>,
+private fun AddActionsPanel(
+    customActions: List<CustomAction>,
+    onAddAction: () -> Unit,
     onAddCustomAction: (String) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("常用动作", style = MaterialTheme.typography.titleSmall)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(
-                items = actions,
-                key = { it.id },
-                contentType = { "shortcut" }
-            ) { action ->
-                OutlinedButton(onClick = { onAddCustomAction(action.name) }) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("继续添加", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "常用动作和新动作入口放在底部，录完一组后可以顺手继续添加。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Button(onClick = onAddAction) {
                     Icon(Icons.Outlined.Add, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text(action.name)
+                    Spacer(Modifier.width(8.dp))
+                    Text("新动作")
+                }
+            }
+
+            if (customActions.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(
+                        items = customActions,
+                        key = { it.id },
+                        contentType = { "shortcut" }
+                    ) { action ->
+                        OutlinedButton(onClick = { onAddCustomAction(action.name) }) {
+                            Icon(Icons.Outlined.Add, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text(action.name)
+                        }
+                    }
                 }
             }
         }
@@ -199,7 +214,7 @@ private fun CustomActionShortcuts(
 }
 
 @Composable
-private fun EmptyWorkoutCard(onAddAction: () -> Unit) {
+private fun EmptyWorkoutCard() {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(
             modifier = Modifier
@@ -209,15 +224,10 @@ private fun EmptyWorkoutCard(onAddAction: () -> Unit) {
         ) {
             Text(text = "今天还没有记录", style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "添加动作后，可以继续添加组数、次数和重量。",
+                text = "向下滑到添加区，可以选择常用动作或创建新动作。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedButton(onClick = onAddAction) {
-                Icon(Icons.Outlined.Add, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("添加动作")
-            }
         }
     }
 }
