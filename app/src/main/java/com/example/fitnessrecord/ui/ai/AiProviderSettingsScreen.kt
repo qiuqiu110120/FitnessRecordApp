@@ -18,9 +18,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,11 +42,14 @@ fun AiProviderSettingsScreen(
     innerPadding: PaddingValues,
     config: AiProviderConfig,
     themeColorKey: String,
+    isTestingConnection: Boolean,
+    testMessage: AiConnectionTestMessage?,
     onProviderChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
     onThemeColorChange: (String) -> Unit,
+    onTestConnection: () -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
 ) {
@@ -143,7 +148,8 @@ fun AiProviderSettingsScreen(
             ) {
                 Button(
                     modifier = Modifier.weight(1f),
-                    onClick = onSave
+                    onClick = onSave,
+                    enabled = !isTestingConnection
                 ) {
                     Icon(Icons.Outlined.Save, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -151,11 +157,55 @@ fun AiProviderSettingsScreen(
                 }
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
-                    onClick = onClear
+                    onClick = onClear,
+                    enabled = !isTestingConnection
                 ) {
                     Icon(Icons.Outlined.Delete, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("清除")
+                }
+            }
+        }
+
+        item {
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onTestConnection,
+                enabled = !isTestingConnection
+            ) {
+                if (isTestingConnection) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Outlined.WifiTethering, contentDescription = null)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(if (isTestingConnection) "正在测试连接" else "测试连通性")
+            }
+        }
+
+        val message = testMessage
+        if (message != null) {
+            item {
+                val colors = if (message.isSuccess) {
+                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                } else {
+                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                }
+                val textColor = if (message.isSuccess) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onErrorContainer
+                }
+                Card(colors = colors) {
+                    Text(
+                        text = message.text,
+                        modifier = Modifier.padding(14.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor
+                    )
                 }
             }
         }

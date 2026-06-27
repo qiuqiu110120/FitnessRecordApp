@@ -2,12 +2,15 @@ package com.example.fitnessrecord.ui.ai
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitnessrecord.data.remote.OpenAiCompatibleApiService
 import com.example.fitnessrecord.data.settings.SettingsRepository
 import com.example.fitnessrecord.model.AiProviderConfig
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 class AiSettingsViewModel(
     private val settingsRepository: SettingsRepository,
@@ -44,6 +47,30 @@ class AiSettingsViewModel(
         updateDraft { it.copy(model = value) }
     }
 
+    fun testConnection() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isTestingConnection = true, testMessage = null)
+            val draft = _uiState.value.draft
+            runCatching { withTimeout(20_000) { OpenAiCompatibleApiService(draft).testConnection() } }
+                .onSuccess { message ->
+                    _uiState.value = _uiState.value.copy(
+                        isTestingConnection = false,
+                        testMessage = AiConnectionTestMessage(isSuccess = true, text = message)
+                    )
+                }
+                .onFailure { error ->
+                    val message = when (error) {
+                        is TimeoutCancellationException -> "连接超时，请检查网络、Base URL 或代理。"
+                        else -> error.message ?: "连接失败，请检查 Base URL、API Key 和模型名称。"
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        isTestingConnection = false,
+                        testMessage = AiConnectionTestMessage(isSuccess = false, text = message)
+                    )
+                }
+        }
+    }
+
     fun save() {
         viewModelScope.launch {
             settingsRepository.saveAiProviderConfig(_uiState.value.draft)
@@ -63,7 +90,10 @@ class AiSettingsViewModel(
     }
 
     private fun updateDraft(update: (AiProviderConfig) -> AiProviderConfig) {
-        _uiState.value = _uiState.value.copy(draft = update(_uiState.value.draft))
+        _uiState.value = _uiState.value.copy(
+            draft = update(_uiState.value.draft),
+            testMessage = null
+        )
     }
 }
 
@@ -71,4 +101,11 @@ data class AiSettingsUiState(
     val config: AiProviderConfig = AiProviderConfig(),
     val draft: AiProviderConfig = AiProviderConfig(),
     val themeColorKey: String = "green",
+    val isTestingConnection: Boolean = false,
+    val testMessage: AiConnectionTestMessage? = null,
+)
+
+data class AiConnectionTestMessage(
+    val isSuccess: Boolean,
+    val text: String,
 )

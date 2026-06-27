@@ -38,6 +38,29 @@ enum class TrendMode(val label: String) {
 }
 
 @Immutable
+data class AiDashboardData(
+    val totalTrainingDays: Int,
+    val totalMinutes: Int,
+    val totalActions: Int,
+    val totalSets: Int,
+    val attendanceTrend: List<AttendancePoint>,
+    val typeBreakdown: List<AttendancePoint>,
+)
+
+@Immutable
+data class AiAdviceResult(
+    val advice: AiAdvice,
+    val tokenUsage: AiTokenUsage? = null,
+)
+
+@Immutable
+data class AiTokenUsage(
+    val promptTokens: Int? = null,
+    val completionTokens: Int? = null,
+    val totalTokens: Int? = null,
+)
+
+@Immutable
 data class AiAdvice(
     val summary: String,
     val frequencyAnalysis: String,

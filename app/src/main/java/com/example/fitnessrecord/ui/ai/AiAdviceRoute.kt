@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -25,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.model.AiAdvice
+import com.example.fitnessrecord.model.AiDashboardData
+import com.example.fitnessrecord.model.AiTokenUsage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,11 +75,14 @@ fun AiAdviceRoute(
                 innerPadding = settingsPadding,
                 config = settingsState.draft,
                 themeColorKey = settingsState.themeColorKey,
+                isTestingConnection = settingsState.isTestingConnection,
+                testMessage = settingsState.testMessage,
                 onProviderChange = settingsViewModel::updateProvider,
                 onBaseUrlChange = settingsViewModel::updateBaseUrl,
                 onApiKeyChange = settingsViewModel::updateApiKey,
                 onModelChange = settingsViewModel::updateModel,
                 onThemeColorChange = settingsViewModel::saveThemeColor,
+                onTestConnection = settingsViewModel::testConnection,
                 onSave = settingsViewModel::save,
                 onClear = settingsViewModel::clear
             )
@@ -87,11 +94,24 @@ fun AiAdviceRoute(
                 TopAppBar(
                     title = { Text("AI 健身建议") },
                     actions = {
-                        IconButton(onClick = { showSettings = true }) {
+                        IconButton(
+                            onClick = { showSettings = true },
+                            enabled = !uiState.isLoading
+                        ) {
                             Icon(Icons.Outlined.Settings, contentDescription = "AI 厂商设置")
                         }
-                        IconButton(onClick = viewModel::refresh) {
-                            Icon(Icons.Outlined.Refresh, contentDescription = "重新生成")
+                        IconButton(
+                            onClick = viewModel::refresh,
+                            enabled = !uiState.isLoading
+                        ) {
+                            if (uiState.isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Outlined.Refresh, contentDescription = "重新生成")
+                            }
                         }
                     }
                 )
@@ -100,28 +120,51 @@ fun AiAdviceRoute(
             val errorMessage = uiState.errorMessage
             val advice = uiState.advice
             when {
-                uiState.isLoading -> LoadingAdvice(contentPadding)
-                errorMessage != null -> ErrorAdvice(contentPadding, errorMessage, viewModel::refresh)
-                advice != null -> AiAdviceContent(contentPadding, advice)
+                uiState.isLoading -> LoadingAdvice(
+                    innerPadding = contentPadding,
+                    message = uiState.loadingMessage,
+                    progress = uiState.progress,
+                    remainingSeconds = uiState.remainingSeconds
+                )
+                errorMessage != null -> ErrorAdvice(contentPadding, errorMessage, uiState.dashboardData, viewModel::refresh)
+                advice != null -> AiAdviceContent(contentPadding, advice, uiState.dashboardData, uiState.tokenUsage)
             }
         }
     }
 }
 
 @Composable
-private fun LoadingAdvice(innerPadding: PaddingValues) {
+private fun LoadingAdvice(
+    innerPadding: PaddingValues,
+    message: String,
+    progress: Float,
+    remainingSeconds: Int,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(innerPadding),
+            .padding(innerPadding)
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         CircularProgressIndicator()
         Text(
-            text = "正在整理训练数据",
-            modifier = Modifier.padding(top = 16.dp),
-            style = MaterialTheme.typography.bodyMedium
+            text = message,
+            modifier = Modifier.padding(top = 18.dp),
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = "预计还需要 ${remainingSeconds.coerceAtLeast(0)} 秒",
+            modifier = Modifier.padding(top = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        LinearProgressIndicator(
+            progress = { progress.coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 18.dp)
         )
     }
 }
@@ -130,19 +173,29 @@ private fun LoadingAdvice(innerPadding: PaddingValues) {
 private fun ErrorAdvice(
     innerPadding: PaddingValues,
     message: String,
+    dashboardData: AiDashboardData?,
     onRetry: () -> Unit,
 ) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(innerPadding)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("生成失败", style = MaterialTheme.typography.titleLarge)
-        Text(message, style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = onRetry) {
-            Text("重试")
+        dashboardData?.let { item { AiDashboardCard(it) } }
+        item {
+            Text("生成失败", style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = message,
+                modifier = Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        item {
+            Button(onClick = onRetry) {
+                Text("重试")
+            }
         }
     }
 }
@@ -151,6 +204,8 @@ private fun ErrorAdvice(
 private fun AiAdviceContent(
     innerPadding: PaddingValues,
     advice: AiAdvice,
+    dashboardData: AiDashboardData?,
+    tokenUsage: AiTokenUsage?,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -159,6 +214,8 @@ private fun AiAdviceContent(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        dashboardData?.let { item { AiDashboardCard(it) } }
+        item { TokenUsageCard(tokenUsage) }
         item { AdviceCard(Icons.Outlined.Summarize, "本月总结", advice.summary) }
         item { AdviceCard(Icons.AutoMirrored.Outlined.TrendingUp, "训练频率分析", advice.frequencyAnalysis) }
         item {
@@ -184,6 +241,21 @@ private fun AiAdviceContent(
             )
         }
         item { AdviceCard(Icons.Outlined.AutoAwesome, "鼓励", advice.motivation) }
+    }
+}
+
+@Composable
+private fun TokenUsageCard(tokenUsage: AiTokenUsage?) {
+    val prompt = tokenUsage?.promptTokens?.toString() ?: "未返回"
+    val completion = tokenUsage?.completionTokens?.toString() ?: "未返回"
+    val total = tokenUsage?.totalTokens?.toString() ?: "未返回"
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("AI 消耗", style = MaterialTheme.typography.titleMedium)
+            Text("输入 tokens：$prompt", style = MaterialTheme.typography.bodyMedium)
+            Text("输出 tokens：$completion", style = MaterialTheme.typography.bodyMedium)
+            Text("总 tokens：$total", style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 

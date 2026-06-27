@@ -2,11 +2,13 @@ package com.example.fitnessrecord.data.remote
 
 import com.example.fitnessrecord.model.AiAdvice
 import com.example.fitnessrecord.model.AiAdviceRequest
+import com.example.fitnessrecord.model.AiAdviceResult
+import com.example.fitnessrecord.model.AiTokenUsage
 import com.example.fitnessrecord.model.NextWeekSuggestion
 import kotlinx.coroutines.delay
 
 class MockAiApiService : ApiService {
-    override suspend fun requestAiAdvice(request: AiAdviceRequest): AiAdvice {
+    override suspend fun requestAiAdvice(request: AiAdviceRequest): AiAdviceResult {
         delay(350)
         val records = request.records
         val totalDays = records.size
@@ -62,17 +64,24 @@ class MockAiApiService : ApiService {
             add("AI 建议不能替代医生诊断或专业教练评估。")
         }
 
-        return AiAdvice(
-            summary = summary,
-            frequencyAnalysis = frequencyAnalysis,
-            recoveryAdvice = recoveryAdvice,
-            nextWeekPlan = nextWeekPlan,
-            riskWarnings = riskWarnings,
-            motivation = if (totalDays == 0) {
-                "先完成一次真实记录，就是开始建立习惯。"
-            } else {
-                "你已经在用数据照顾自己的训练节奏，继续稳稳推进。"
-            }
+        return AiAdviceResult(
+            advice = AiAdvice(
+                summary = summary,
+                frequencyAnalysis = frequencyAnalysis,
+                recoveryAdvice = recoveryAdvice,
+                nextWeekPlan = nextWeekPlan,
+                riskWarnings = riskWarnings,
+                motivation = if (totalDays == 0) {
+                    "先完成一次真实记录，就是开始建立习惯。"
+                } else {
+                    "你已经在用数据照顾自己的训练节奏，继续稳稳推进。"
+                }
+            ),
+            tokenUsage = AiTokenUsage(
+                promptTokens = 0,
+                completionTokens = 0,
+                totalTokens = 0
+            )
         )
     }
 

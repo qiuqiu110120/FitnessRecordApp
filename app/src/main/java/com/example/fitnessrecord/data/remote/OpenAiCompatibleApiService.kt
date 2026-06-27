@@ -2,10 +2,13 @@ package com.example.fitnessrecord.data.remote
 
 import com.example.fitnessrecord.model.AiAdvice
 import com.example.fitnessrecord.model.AiAdviceRequest
+import com.example.fitnessrecord.model.AiAdviceResult
 import com.example.fitnessrecord.model.AiProviderConfig
+import com.example.fitnessrecord.model.AiTokenUsage
 import com.example.fitnessrecord.model.NextWeekSuggestion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -21,26 +24,55 @@ class OpenAiCompatibleApiService(
     private val client: OkHttpClient = defaultClient,
     private val json: Json = defaultJson,
 ) : ApiService {
-    override suspend fun requestAiAdvice(request: AiAdviceRequest): AiAdvice = withContext(Dispatchers.IO) {
+    override suspend fun requestAiAdvice(request: AiAdviceRequest): AiAdviceResult = withContext(Dispatchers.IO) {
+        validateConfig()
+        val response = executeChatCompletion(
+            ChatCompletionRequest(
+                model = config.model,
+                messages = listOf(
+                    ChatMessage(role = "system", content = systemPrompt),
+                    ChatMessage(role = "user", content = json.encodeToString(request.toPromptPayload()))
+                )
+            )
+        )
+        val content = response.firstContent().stripJsonFence()
+        val advice = runCatching { json.decodeFromString<AiAdviceResponse>(content).toModel() }
+            .getOrElse { error -> throw IOException("大模型返回 JSON 解析失败：${error.message}") }
+
+        AiAdviceResult(advice = advice, tokenUsage = response.usage?.toModel())
+    }
+
+    suspend fun testConnection(): String = withContext(Dispatchers.IO) {
+        validateConfig()
+        val response = executeChatCompletion(
+            ChatCompletionRequest(
+                model = config.model,
+                messages = listOf(
+                    ChatMessage(role = "system", content = "你正在进行接口连通性测试。请只回复 OK。"),
+                    ChatMessage(role = "user", content = "请回复 OK")
+                ),
+                temperature = 0.0
+            )
+        )
+        val content = response.firstContent()
+        if (content.isBlank()) {
+            throw IOException("大模型返回内容为空")
+        }
+        "连接成功，模型已返回：${content.take(30)}"
+    }
+
+    private fun validateConfig() {
         require(config.baseUrl.isNotBlank()) { "请先填写大模型 Base URL" }
         require(config.apiKey.isNotBlank()) { "请先填写 API Key" }
         require(config.model.isNotBlank()) { "请先填写模型名称" }
+    }
 
+    private fun executeChatCompletion(payload: ChatCompletionRequest): ChatCompletionResponse {
         val httpRequest = Request.Builder()
             .url(config.baseUrl.toChatCompletionsUrl())
             .header("Authorization", "Bearer ${config.apiKey}")
             .header("Content-Type", "application/json")
-            .post(
-                json.encodeToString(
-                    ChatCompletionRequest(
-                        model = config.model,
-                        messages = listOf(
-                            ChatMessage(role = "system", content = systemPrompt),
-                            ChatMessage(role = "user", content = json.encodeToString(request.toPromptPayload()))
-                        )
-                    )
-                ).toRequestBody(jsonMediaType)
-            )
+            .post(json.encodeToString(payload).toRequestBody(jsonMediaType))
             .build()
 
         client.newCall(httpRequest).execute().use { response ->
@@ -48,22 +80,12 @@ class OpenAiCompatibleApiService(
             if (!response.isSuccessful) {
                 throw IOException("大模型请求失败：HTTP ${response.code} ${body.take(180)}")
             }
-
-            val content = json.decodeFromString<ChatCompletionResponse>(body)
-                .choices
-                .firstOrNull()
-                ?.message
-                ?.content
-                ?.stripJsonFence()
-                .orEmpty()
-
-            if (content.isBlank()) {
-                throw IOException("大模型返回内容为空")
-            }
-
-            runCatching { json.decodeFromString<AiAdviceResponse>(content).toModel() }
-                .getOrElse { error -> throw IOException("大模型返回 JSON 解析失败：${error.message}") }
+            return json.decodeFromString(body)
         }
+    }
+
+    private fun ChatCompletionResponse.firstContent(): String {
+        return choices.firstOrNull()?.message?.content?.stripJsonFence().orEmpty()
     }
 
     private fun String.toChatCompletionsUrl(): String {
@@ -98,9 +120,9 @@ class OpenAiCompatibleApiService(
     private companion object {
         val jsonMediaType = "application/json; charset=utf-8".toMediaType()
         val defaultClient = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
             .build()
         val defaultJson = Json { ignoreUnknownKeys = true }
         val systemPrompt = """
@@ -151,12 +173,29 @@ private data class ChatMessage(
 @Serializable
 private data class ChatCompletionResponse(
     val choices: List<ChatChoice> = emptyList(),
+    val usage: TokenUsageResponse? = null,
 )
 
 @Serializable
 private data class ChatChoice(
     val message: ChatMessage,
 )
+
+@Serializable
+private data class TokenUsageResponse(
+    @SerialName("prompt_tokens")
+    val promptTokens: Int? = null,
+    @SerialName("completion_tokens")
+    val completionTokens: Int? = null,
+    @SerialName("total_tokens")
+    val totalTokens: Int? = null,
+) {
+    fun toModel(): AiTokenUsage = AiTokenUsage(
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        totalTokens = totalTokens
+    )
+}
 
 @Serializable
 private data class AiPromptPayload(
