@@ -1,8 +1,12 @@
 package com.example.fitnessrecord.data.repository
 
 import com.example.fitnessrecord.data.remote.ApiService
+import com.example.fitnessrecord.data.remote.MockAiApiService
+import com.example.fitnessrecord.data.remote.OpenAiCompatibleApiService
+import com.example.fitnessrecord.data.settings.SettingsRepository
 import com.example.fitnessrecord.model.AiAdvice
 import com.example.fitnessrecord.model.AiAdviceRequest
+import com.example.fitnessrecord.model.AiProviderConfig
 import com.example.fitnessrecord.model.AiWorkoutRecord
 import com.example.fitnessrecord.model.TrendMode
 import kotlinx.coroutines.flow.first
@@ -10,8 +14,9 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
 class DefaultAiAdviceRepository(
-    private val apiService: ApiService,
     private val workoutRepository: WorkoutRepository,
+    private val settingsRepository: SettingsRepository,
+    private val mockApiService: ApiService = MockAiApiService(),
 ) : AiAdviceRepository {
     override suspend fun generateAdvice(): AiAdvice {
         val days = workoutRepository.observeWorkoutDays().first()
@@ -28,12 +33,20 @@ class DefaultAiAdviceRepository(
                 )
             }
         val trend = workoutRepository.observeTrend(TrendMode.Weekly, currentMonth).first()
+        val request = AiAdviceRequest(records = records, attendanceTrend = trend)
+        val config = settingsRepository.aiProviderConfig.first()
 
-        return apiService.requestAiAdvice(
-            AiAdviceRequest(
-                records = records,
-                attendanceTrend = trend
-            )
-        )
+        return if (config.shouldUseMock()) {
+            mockApiService.requestAiAdvice(request)
+        } else {
+            OpenAiCompatibleApiService(config).requestAiAdvice(request)
+        }
+    }
+
+    private fun AiProviderConfig.shouldUseMock(): Boolean {
+        return provider.equals("Mock", ignoreCase = true) ||
+            baseUrl.isBlank() ||
+            apiKey.isBlank() ||
+            model.isBlank()
     }
 }

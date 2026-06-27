@@ -11,13 +11,15 @@ class MockAiApiService : ApiService {
         val records = request.records
         val totalDays = records.size
         val totalMinutes = records.mapNotNull { it.durationMinutes }.sum()
-        val riskNotes = records.filter { record -> riskKeywords.any { keyword -> record.notes.contains(keyword, ignoreCase = true) } }
+        val riskNotes = records.filter { record ->
+            riskKeywords.any { keyword -> record.notes.contains(keyword, ignoreCase = true) }
+        }
         val hasRisk = riskNotes.isNotEmpty()
 
         val summary = when {
             totalDays == 0 -> "本月暂无可分析的训练记录。"
-            totalMinutes > 0 -> "本月记录了 ${totalDays} 天训练，已填写的总训练时长为 ${totalMinutes} 分钟。"
-            else -> "本月记录了 ${totalDays} 天训练，但训练时长数据尚未完整填写。"
+            totalMinutes > 0 -> "本月记录了 $totalDays 天训练，已填写的总训练时长为 $totalMinutes 分钟。"
+            else -> "本月记录了 $totalDays 天训练，但训练时长数据尚未完整填写。"
         }
 
         val frequencyAnalysis = when {

@@ -1,7 +1,7 @@
 package com.example.fitnessrecord.ui.ai
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -96,7 +96,7 @@ fun AiProviderSettingsScreen(
                 ) {
                     Text("大模型厂商配置", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = "MVP 当前仍使用 mock 建议；这里先保存厂商参数，后续可在 Repository 中接入真实接口。",
+                        text = "填写 OpenAI 兼容接口后，AI 建议会使用真实大模型生成。留空或厂商填写 Mock 时使用本地模拟建议。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

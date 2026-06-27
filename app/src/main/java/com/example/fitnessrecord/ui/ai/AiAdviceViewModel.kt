@@ -24,7 +24,11 @@ class AiAdviceViewModel(
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             runCatching { aiAdviceRepository.generateAdvice() }
                 .onSuccess { advice -> _uiState.value = AiAdviceUiState(advice = advice) }
-                .onFailure { error -> _uiState.value = AiAdviceUiState(errorMessage = error.message ?: "生成建议失败") }
+                .onFailure { error ->
+                    _uiState.value = AiAdviceUiState(
+                        errorMessage = error.message ?: "生成建议失败，请检查大模型配置和网络状态。"
+                    )
+                }
         }
     }
 }

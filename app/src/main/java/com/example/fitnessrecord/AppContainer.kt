@@ -5,8 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
 import com.example.fitnessrecord.data.local.FitnessDatabase
-import com.example.fitnessrecord.data.remote.ApiService
-import com.example.fitnessrecord.data.remote.MockAiApiService
 import com.example.fitnessrecord.data.repository.DefaultAiAdviceRepository
 import com.example.fitnessrecord.data.repository.DefaultWorkoutRepository
 import com.example.fitnessrecord.data.repository.WorkoutRepository
@@ -24,10 +22,9 @@ class AppContainer(context: Context) {
         "fitness_record.db"
     ).fallbackToDestructiveMigration().build()
 
-    private val apiService: ApiService = MockAiApiService()
     private val workoutRepository: WorkoutRepository = DefaultWorkoutRepository(database.workoutDao())
     private val settingsRepository: SettingsRepository = DataStoreSettingsRepository(context)
-    private val aiAdviceRepository = DefaultAiAdviceRepository(apiService, workoutRepository)
+    private val aiAdviceRepository = DefaultAiAdviceRepository(workoutRepository, settingsRepository)
 
     val homeViewModelFactory: ViewModelProvider.Factory = simpleViewModelFactory {
         HomeViewModel(workoutRepository)

@@ -1,6 +1,7 @@
 package com.example.fitnessrecord.ui.home
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -78,6 +79,7 @@ fun HomeRoute(
 
     when {
         showActionSettings -> {
+            BackHandler { showActionSettings = false }
             Scaffold(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
@@ -104,6 +106,7 @@ fun HomeRoute(
         }
 
         uiState.editingDate != null && editorDraft != null -> {
+            BackHandler { viewModel.closeEditor() }
             Scaffold(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
