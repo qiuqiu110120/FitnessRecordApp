@@ -24,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,34 +55,14 @@ fun HomeCalendar(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CalendarMode.entries.forEach { calendarMode ->
-                        FilterChip(
-                            selected = mode == calendarMode,
-                            onClick = { onModeChange(calendarMode) },
-                            label = { Text(calendarMode.label) }
-                        )
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onPrevious) {
-                        Icon(Icons.Outlined.ChevronLeft, contentDescription = "上一页")
-                    }
-                    Text(
-                        text = if (mode == CalendarMode.Month) visibleMonth.format(monthFormatter) else weekTitle(selectedDate),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    IconButton(onClick = onNext) {
-                        Icon(Icons.Outlined.ChevronRight, contentDescription = "下一页")
-                    }
-                }
-            }
+            CalendarToolbar(
+                mode = mode,
+                visibleMonth = visibleMonth,
+                selectedDate = selectedDate,
+                onModeChange = onModeChange,
+                onPrevious = onPrevious,
+                onNext = onNext
+            )
 
             WeekHeader()
 
@@ -95,9 +76,53 @@ fun HomeCalendar(
 }
 
 @Composable
+private fun CalendarToolbar(
+    mode: CalendarMode,
+    visibleMonth: YearMonth,
+    selectedDate: LocalDate,
+    onModeChange: (CalendarMode) -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val title = remember(mode, visibleMonth, selectedDate) {
+        if (mode == CalendarMode.Month) visibleMonth.format(monthFormatter) else weekTitle(selectedDate)
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CalendarMode.entries.forEach { calendarMode ->
+                FilterChip(
+                    selected = mode == calendarMode,
+                    onClick = { onModeChange(calendarMode) },
+                    label = { Text(calendarMode.label) }
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onPrevious) {
+                Icon(Icons.Outlined.ChevronLeft, contentDescription = "上一页")
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            IconButton(onClick = onNext) {
+                Icon(Icons.Outlined.ChevronRight, contentDescription = "下一页")
+            }
+        }
+    }
+}
+
+@Composable
 private fun WeekHeader() {
+    val labels = remember { listOf("一", "二", "三", "四", "五", "六", "日") }
     Row(modifier = Modifier.fillMaxWidth()) {
-        listOf("一", "二", "三", "四", "五", "六", "日").forEach { label ->
+        labels.forEach { label ->
             Text(
                 text = label,
                 modifier = Modifier.weight(1f),
@@ -116,19 +141,22 @@ private fun MonthGrid(
     recordDates: Set<LocalDate>,
     onDateClick: (LocalDate) -> Unit,
 ) {
-    val firstDay = visibleMonth.atDay(1)
-    val leadingBlankCount = firstDay.dayOfWeek.value - DayOfWeek.MONDAY.value
-    val dates = List(leadingBlankCount) { null } + (1..visibleMonth.lengthOfMonth()).map { visibleMonth.atDay(it) }
+    val rows = remember(visibleMonth) { visibleMonth.calendarRows() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        dates.chunked(7).forEach { row ->
+        rows.forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                (row + List(7 - row.size) { null }).forEach { date ->
+                row.forEach { date ->
                     Box(modifier = Modifier.weight(1f)) {
                         if (date == null) {
                             Spacer(modifier = Modifier.aspectRatio(1f))
                         } else {
-                            CalendarDayCell(date, date == selectedDate, date in recordDates) { onDateClick(date) }
+                            CalendarDayCell(
+                                date = date,
+                                selected = date == selectedDate,
+                                hasRecord = date in recordDates,
+                                onClick = { onDateClick(date) }
+                            )
                         }
                     }
                 }
@@ -143,12 +171,20 @@ private fun WeekRow(
     recordDates: Set<LocalDate>,
     onDateClick: (LocalDate) -> Unit,
 ) {
-    val start = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val weekDates = remember(selectedDate) {
+        val start = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        List(7) { offset -> start.plusDays(offset.toLong()) }
+    }
+
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        (0..6).forEach { offset ->
-            val date = start.plusDays(offset.toLong())
+        weekDates.forEach { date ->
             Box(modifier = Modifier.weight(1f)) {
-                CalendarDayCell(date, date == selectedDate, date in recordDates) { onDateClick(date) }
+                CalendarDayCell(
+                    date = date,
+                    selected = date == selectedDate,
+                    hasRecord = date in recordDates,
+                    onClick = { onDateClick(date) }
+                )
             }
         }
     }
@@ -192,6 +228,13 @@ private fun CalendarDayCell(
                 .background(if (hasRecord) contentColor else Color.Transparent)
         )
     }
+}
+
+private fun YearMonth.calendarRows(): List<List<LocalDate?>> {
+    val firstDay = atDay(1)
+    val leadingBlankCount = firstDay.dayOfWeek.value - DayOfWeek.MONDAY.value
+    val dates = List(leadingBlankCount) { null } + (1..lengthOfMonth()).map { atDay(it) }
+    return dates.chunked(7).map { row -> row + List(7 - row.size) { null } }
 }
 
 private val monthFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy 年 M 月", Locale.CHINA)

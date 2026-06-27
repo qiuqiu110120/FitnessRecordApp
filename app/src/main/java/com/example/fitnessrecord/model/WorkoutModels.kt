@@ -1,7 +1,9 @@
 package com.example.fitnessrecord.model
 
+import androidx.compose.runtime.Immutable
 import java.time.LocalDate
 
+@Immutable
 data class WorkoutDay(
     val date: LocalDate,
     val trainingType: String = "力量训练",
@@ -10,18 +12,21 @@ data class WorkoutDay(
     val actions: List<WorkoutAction> = emptyList(),
 )
 
+@Immutable
 data class WorkoutAction(
     val id: Long = 0,
     val name: String,
     val sets: List<WorkoutSet> = emptyList(),
 )
 
+@Immutable
 data class WorkoutSet(
     val id: Long = 0,
     val reps: Int? = null,
     val weightKg: Double? = null,
 )
 
+@Immutable
 data class AttendancePoint(
     val label: String,
     val count: Int,
@@ -32,6 +37,7 @@ enum class TrendMode(val label: String) {
     Monthly("月"),
 }
 
+@Immutable
 data class AiAdvice(
     val summary: String,
     val frequencyAnalysis: String,
@@ -41,16 +47,19 @@ data class AiAdvice(
     val motivation: String,
 )
 
+@Immutable
 data class NextWeekSuggestion(
     val day: String,
     val suggestion: String,
 )
 
+@Immutable
 data class AiAdviceRequest(
     val records: List<AiWorkoutRecord>,
     val attendanceTrend: List<AttendancePoint>,
 )
 
+@Immutable
 data class AiWorkoutRecord(
     val date: String,
     val trainingType: String,
@@ -58,11 +67,13 @@ data class AiWorkoutRecord(
     val notes: String,
 )
 
+@Immutable
 data class CustomAction(
     val id: Long = 0,
     val name: String,
 )
 
+@Immutable
 data class AiProviderConfig(
     val provider: String = "Mock",
     val baseUrl: String = "",

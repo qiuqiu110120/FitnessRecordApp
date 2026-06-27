@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -148,9 +149,7 @@ private fun HomeScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item {
-            HomeHeader(onOpenSettings = onOpenSettings)
-        }
+        item { HomeHeader(onOpenSettings = onOpenSettings) }
 
         item {
             HomeCalendar(
@@ -205,6 +204,11 @@ private fun SelectedDateCard(
     day: WorkoutDay,
     onEditDate: () -> Unit,
 ) {
+    val totalSets = remember(day.actions) { day.actions.sumOf { it.sets.size } }
+    val trainingMeta = remember(day.trainingType, day.durationMinutes) {
+        listOfNotNull(day.trainingType, day.durationMinutes?.let { "${it} 分钟" }).joinToString(" · ")
+    }
+
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -218,12 +222,12 @@ private fun SelectedDateCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(day.date.format(detailDateFormatter), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = if (day.actions.isEmpty()) "暂无训练记录" else "${day.actions.size} 个动作，${day.actions.sumOf { it.sets.size }} 组",
+                        text = if (day.actions.isEmpty()) "暂无训练记录" else "${day.actions.size} 个动作，${totalSets} 组",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = listOfNotNull(day.trainingType, day.durationMinutes?.let { "${it} 分钟" }).joinToString(" · "),
+                        text = trainingMeta,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

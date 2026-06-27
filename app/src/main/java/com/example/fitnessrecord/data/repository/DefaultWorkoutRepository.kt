@@ -14,7 +14,9 @@ import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -42,7 +44,7 @@ class DefaultWorkoutRepository(
                 TrendMode.Weekly -> weeklyTrend(month, allDates.filter { YearMonth.from(it) == month }.toSet())
                 TrendMode.Monthly -> monthlyTrend(month, allDates)
             }
-        }
+        }.flowOn(Dispatchers.Default)
 
     override suspend fun saveWorkoutDay(day: WorkoutDay) {
         val now = System.currentTimeMillis()
