@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -228,13 +230,47 @@ private fun SettingsEntryCard(
 ) {
     Card(
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         ListItem(
-            headlineContent = { Text(title) },
-            supportingContent = { Text(subtitle) },
-            leadingContent = { Icon(icon, contentDescription = null) },
-            modifier = Modifier.fillMaxWidth()
+            headlineContent = {
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            },
+            supportingContent = {
+                Text(
+                    text = subtitle,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                )
+            },
+            leadingContent = {
+                IconBadge(icon = icon)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 82.dp),
+            colors = androidx.compose.material3.ListItemDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        )
+    }
+}
+
+@Composable
+private fun IconBadge(icon: ImageVector) {
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimary
         )
     }
 }
@@ -624,3 +660,4 @@ private fun versionEntrySubtitle(state: UpdateCheckState): String = when (state)
     is UpdateCheckState.Failed -> "检查更新失败"
     UpdateCheckState.Idle -> "当前版本 ${AppVersion.NAME}"
 }
+

@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.ui.settings
+﻿package com.example.fitnessrecord.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,10 +15,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class AppSettingsUiState(
-    val themeColorKey: String = "green",
+    val themeColorKey: String? = null,
     val updateCheckState: UpdateCheckState = UpdateCheckState.Idle,
     val availableUpdate: AppRelease? = null,
-)
+) {
+    val isThemeLoaded: Boolean = themeColorKey != null
+    val resolvedThemeColorKey: String = themeColorKey ?: "green"
+}
 
 class AppSettingsViewModel(
     private val settingsRepository: SettingsRepository,
@@ -119,3 +122,4 @@ private fun String.versionParts(): List<Int> =
         .substringBefore("-")
         .split(".")
         .mapNotNull { it.toIntOrNull() }
+

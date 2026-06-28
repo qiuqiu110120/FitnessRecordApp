@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -30,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -55,11 +57,15 @@ class MainActivity : ComponentActivity() {
                 factory = app.appContainer.appSettingsViewModelFactory
             )
             val settingsState by settingsViewModel.uiState.collectAsState()
-            FitnessRecordTheme(themeColorKey = settingsState.themeColorKey) {
-                FitnessRecordApp(
-                    appContainer = app.appContainer,
-                    appSettingsViewModel = settingsViewModel
-                )
+            FitnessRecordTheme(themeColorKey = settingsState.resolvedThemeColorKey) {
+                if (settingsState.isThemeLoaded) {
+                    FitnessRecordApp(
+                        appContainer = app.appContainer,
+                        appSettingsViewModel = settingsViewModel
+                    )
+                } else {
+                    Surface(modifier = Modifier) {}
+                }
             }
         }
     }
@@ -203,3 +209,6 @@ private fun FitnessRecordApp(
 }
 
 private const val BACK_EXIT_INTERVAL_MS = 2_000L
+
+
+
