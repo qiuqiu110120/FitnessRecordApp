@@ -68,11 +68,31 @@ class OpenAiCompatibleApiService(
     }
 
     private fun executeChatCompletion(payload: ChatCompletionRequest): ChatCompletionResponse {
+        val requestBody = json.encodeToString(payload).toRequestBody(jsonMediaType)
+        val primaryUrl = config.baseUrl.toChatCompletionsUrl()
+        return runCatching {
+            executeChatCompletionRequest(primaryUrl, requestBody)
+        }.recoverCatching { error ->
+            val fallbackUrl = primaryUrl.httpsToHttpFallback()
+            if (error.isTlsProtocolMismatch() && fallbackUrl != null) {
+                executeChatCompletionRequest(fallbackUrl, requestBody)
+            } else {
+                throw error.toUserFriendlyNetworkError(config.baseUrl)
+            }
+        }.getOrElse { error ->
+            throw error.toUserFriendlyNetworkError(config.baseUrl)
+        }
+    }
+
+    private fun executeChatCompletionRequest(
+        url: String,
+        requestBody: okhttp3.RequestBody,
+    ): ChatCompletionResponse {
         val httpRequest = Request.Builder()
-            .url(config.baseUrl.toChatCompletionsUrl())
+            .url(url)
             .header("Authorization", "Bearer ${config.apiKey}")
             .header("Content-Type", "application/json")
-            .post(json.encodeToString(payload).toRequestBody(jsonMediaType))
+            .post(requestBody)
             .build()
 
         client.newCall(httpRequest).execute().use { response ->
@@ -89,8 +109,51 @@ class OpenAiCompatibleApiService(
     }
 
     private fun String.toChatCompletionsUrl(): String {
-        val trimmed = trim().trimEnd('/')
+        val trimmed = trim()
+            .withDefaultScheme()
+            .trimEnd('/')
         return if (trimmed.endsWith("/chat/completions")) trimmed else "$trimmed/chat/completions"
+    }
+
+    private fun String.withDefaultScheme(): String {
+        val trimmed = trim()
+        return if (trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+    }
+
+    private fun String.httpsToHttpFallback(): String? =
+        if (startsWith("https://", ignoreCase = true)) {
+            replaceFirst(Regex("^https://", RegexOption.IGNORE_CASE), "http://")
+        } else {
+            null
+        }
+
+    private fun Throwable.isTlsProtocolMismatch(): Boolean {
+        val text = buildString {
+            append(message.orEmpty())
+            cause?.message?.let { append(' ').append(it) }
+        }.lowercase()
+        return "unable to parse tls packet header" in text ||
+            "not an ssl/tls record" in text ||
+            "wrong version number" in text ||
+            "plaintext connection" in text
+    }
+
+    private fun Throwable.toUserFriendlyNetworkError(baseUrl: String): Throwable {
+        if (isTlsProtocolMismatch()) {
+            val suggestion = if (baseUrl.trim().startsWith("https://", ignoreCase = true)) {
+                "当前 Base URL 使用 HTTPS，但目标服务像是明文 HTTP。请把 Base URL 改成 http:// 开头后重试。"
+            } else {
+                "目标服务的 HTTP/HTTPS 协议不匹配，请确认 Base URL 协议、端口和代理配置。"
+            }
+            return IOException(suggestion, this)
+        }
+        return this
     }
 
     private fun String.stripJsonFence(): String {

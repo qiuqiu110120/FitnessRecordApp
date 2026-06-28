@@ -20,8 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.WifiTethering
 import androidx.compose.material3.Button
@@ -46,6 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.AppVersion
@@ -63,6 +66,14 @@ import com.example.fitnessrecord.ui.theme.themeSeedColor
 private const val GITHUB_URL = "https://github.com/qiuqiu110120/FitnessRecordApp"
 private const val RELEASES_URL = "https://github.com/qiuqiu110120/FitnessRecordApp/releases"
 
+private enum class SettingsSection(val title: String) {
+    Home("设置"),
+    Theme("主题配色"),
+    AiModel("大模型配置"),
+    Export("数据导出"),
+    Version("版本信息"),
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsRoute(
@@ -76,6 +87,7 @@ fun SettingsRoute(
     tokenUsage: AiTokenUsage?,
     onThemeColorChange: (String) -> Unit,
     onCheckUpdates: () -> Unit,
+    onExportData: () -> Unit,
     onProviderChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
@@ -84,73 +96,192 @@ fun SettingsRoute(
     onSave: () -> Unit,
     onClear: () -> Unit,
 ) {
-    var showVersionInfo by rememberSaveable { mutableStateOf(false) }
+    var section by rememberSaveable { mutableStateOf(SettingsSection.Home) }
 
-    if (showVersionInfo) {
-        BackHandler { showVersionInfo = false }
-        Scaffold(
-            modifier = Modifier.padding(innerPadding),
-            topBar = {
-                TopAppBar(
-                    title = { Text("版本信息") },
-                    navigationIcon = {
-                        IconButton(onClick = { showVersionInfo = false }) {
+    if (section != SettingsSection.Home) {
+        BackHandler { section = SettingsSection.Home }
+    }
+
+    Scaffold(
+        modifier = Modifier.padding(innerPadding),
+        topBar = {
+            TopAppBar(
+                title = { Text(section.title) },
+                navigationIcon = {
+                    if (section != SettingsSection.Home) {
+                        IconButton(onClick = { section = SettingsSection.Home }) {
                             Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
                         }
                     }
-                )
-            }
-        ) { contentPadding ->
-            VersionInfoScreen(
-                innerPadding = contentPadding,
-                updateCheckState = updateCheckState,
-                availableUpdate = availableUpdate,
-                onCheckUpdates = onCheckUpdates
+                }
             )
         }
-    } else {
-        Scaffold(
-            modifier = Modifier.padding(innerPadding),
-            topBar = { TopAppBar(title = { Text("设置") }) }
-        ) { contentPadding ->
-            SettingsContent(
+    ) { contentPadding ->
+        when (section) {
+            SettingsSection.Home -> SettingsHomeScreen(
                 innerPadding = contentPadding,
                 themeColorKey = themeColorKey,
+                config = config,
+                updateCheckState = updateCheckState,
+                onOpenTheme = { section = SettingsSection.Theme },
+                onOpenAiModel = { section = SettingsSection.AiModel },
+                onOpenExport = { section = SettingsSection.Export },
+                onOpenVersion = { section = SettingsSection.Version }
+            )
+
+            SettingsSection.Theme -> ThemeSettingsScreen(
+                innerPadding = contentPadding,
+                themeColorKey = themeColorKey,
+                onThemeColorChange = onThemeColorChange
+            )
+
+            SettingsSection.AiModel -> AiModelSettingsScreen(
+                innerPadding = contentPadding,
                 config = config,
                 isTestingConnection = isTestingConnection,
                 testMessage = testMessage,
                 tokenUsage = tokenUsage,
-                onThemeColorChange = onThemeColorChange,
                 onProviderChange = onProviderChange,
                 onBaseUrlChange = onBaseUrlChange,
                 onApiKeyChange = onApiKeyChange,
                 onModelChange = onModelChange,
                 onTestConnection = onTestConnection,
                 onSave = onSave,
-                onClear = onClear,
-                onOpenVersionInfo = { showVersionInfo = true }
+                onClear = onClear
+            )
+
+            SettingsSection.Export -> ExportDataScreen(
+                innerPadding = contentPadding,
+                onExportData = onExportData
+            )
+
+            SettingsSection.Version -> VersionInfoScreen(
+                innerPadding = contentPadding,
+                updateCheckState = updateCheckState,
+                availableUpdate = availableUpdate,
+                onCheckUpdates = onCheckUpdates
             )
         }
     }
 }
 
 @Composable
-private fun SettingsContent(
+private fun SettingsHomeScreen(
     innerPadding: PaddingValues,
     themeColorKey: String,
     config: AiProviderConfig,
-    isTestingConnection: Boolean,
-    testMessage: AiConnectionTestMessage?,
-    tokenUsage: AiTokenUsage?,
+    updateCheckState: UpdateCheckState,
+    onOpenTheme: () -> Unit,
+    onOpenAiModel: () -> Unit,
+    onOpenExport: () -> Unit,
+    onOpenVersion: () -> Unit,
+) {
+    val themeName = ThemeColorOptions.firstOrNull { it.key == themeColorKey }?.label ?: themeColorKey
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            SettingsEntryCard(
+                title = "大模型配置",
+                subtitle = "当前：${config.provider.ifBlank { "Mock" }}",
+                icon = Icons.Outlined.WifiTethering,
+                onClick = onOpenAiModel
+            )
+        }
+        item {
+            SettingsEntryCard(
+                title = "主题配色",
+                subtitle = "当前：$themeName",
+                icon = Icons.Outlined.Settings,
+                onClick = onOpenTheme
+            )
+        }
+        item {
+            SettingsEntryCard(
+                title = "数据导出",
+                subtitle = "导出训练记录 JSON 文件",
+                icon = Icons.Outlined.FileDownload,
+                onClick = onOpenExport
+            )
+        }
+        item {
+            SettingsEntryCard(
+                title = "版本信息",
+                subtitle = versionEntrySubtitle(updateCheckState),
+                icon = Icons.Outlined.Info,
+                onClick = onOpenVersion
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsEntryCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        ListItem(
+            headlineContent = { Text(title) },
+            supportingContent = { Text(subtitle) },
+            leadingContent = { Icon(icon, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun ExportDataScreen(
+    innerPadding: PaddingValues,
+    onExportData: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("导出健身数据", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "导出为 JSON 文件，包含训练日期、类型、时长、备注、动作、组数、次数和重量。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onExportData
+                    ) {
+                        Icon(Icons.Outlined.FileDownload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("导出 JSON")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeSettingsScreen(
+    innerPadding: PaddingValues,
+    themeColorKey: String,
     onThemeColorChange: (String) -> Unit,
-    onProviderChange: (String) -> Unit,
-    onBaseUrlChange: (String) -> Unit,
-    onApiKeyChange: (String) -> Unit,
-    onModelChange: (String) -> Unit,
-    onTestConnection: () -> Unit,
-    onSave: () -> Unit,
-    onClear: () -> Unit,
-    onOpenVersionInfo: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -160,6 +291,31 @@ private fun SettingsContent(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item { ThemeSettingsCard(themeColorKey, onThemeColorChange) }
+    }
+}
+
+@Composable
+private fun AiModelSettingsScreen(
+    innerPadding: PaddingValues,
+    config: AiProviderConfig,
+    isTestingConnection: Boolean,
+    testMessage: AiConnectionTestMessage?,
+    tokenUsage: AiTokenUsage?,
+    onProviderChange: (String) -> Unit,
+    onBaseUrlChange: (String) -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onModelChange: (String) -> Unit,
+    onTestConnection: () -> Unit,
+    onSave: () -> Unit,
+    onClear: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         item {
             AiModelSettingsCard(
                 config = config,
@@ -216,25 +372,6 @@ private fun SettingsContent(
         val message = testMessage
         if (message != null) {
             item { ConnectionTestMessageCard(message) }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                ListItem(
-                    headlineContent = { Text("版本信息") },
-                    supportingContent = { Text("检查更新和 GitHub 开源信息") },
-                    leadingContent = { Icon(Icons.Outlined.Info, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 16.dp),
-                    onClick = onOpenVersionInfo
-                ) {
-                    Text("查看版本信息")
-                }
-            }
         }
     }
 }
@@ -370,7 +507,7 @@ private fun AiModelSettingsCard(
                 onValueChange = onBaseUrlChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Base URL") },
-                placeholder = { Text("https://api.example.com/v1") },
+                placeholder = { Text("https://api.example.com/v1 或 http://127.0.0.1:8000/v1") },
                 singleLine = true
             )
             OutlinedTextField(
@@ -478,4 +615,12 @@ private fun updateStatusText(
         "发现 $version，可在弹窗中选择立即更新或暂不更新。"
     }
     is UpdateCheckState.Failed -> state.message
+}
+
+private fun versionEntrySubtitle(state: UpdateCheckState): String = when (state) {
+    UpdateCheckState.Checking -> "正在检查更新"
+    UpdateCheckState.UpdateAvailable -> "发现新版本"
+    UpdateCheckState.UpToDate -> "当前版本 ${AppVersion.NAME}"
+    is UpdateCheckState.Failed -> "检查更新失败"
+    UpdateCheckState.Idle -> "当前版本 ${AppVersion.NAME}"
 }

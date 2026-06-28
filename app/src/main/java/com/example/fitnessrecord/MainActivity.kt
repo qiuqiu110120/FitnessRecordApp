@@ -7,8 +7,10 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -25,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,6 +42,8 @@ import com.example.fitnessrecord.ui.settings.AppSettingsViewModel
 import com.example.fitnessrecord.ui.settings.SettingsRoute
 import com.example.fitnessrecord.ui.settings.UpdateCheckState
 import com.example.fitnessrecord.ui.theme.FitnessRecordTheme
+import kotlinx.coroutines.launch
+import java.nio.charset.StandardCharsets
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,6 +88,24 @@ private fun FitnessRecordApp(
     val homeViewModel: HomeViewModel = viewModel(factory = appContainer.homeViewModelFactory)
     val aiAdviceViewModel: AiAdviceViewModel = viewModel(factory = appContainer.aiAdviceViewModelFactory)
     val aiSettingsViewModel: AiSettingsViewModel = viewModel(factory = appContainer.aiSettingsViewModelFactory)
+    val scope = rememberCoroutineScope()
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val json = homeViewModel.exportWorkoutDataJson()
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(json.toByteArray(StandardCharsets.UTF_8))
+                }
+            }.onSuccess {
+                Toast.makeText(context, "健身数据已导出", Toast.LENGTH_SHORT).show()
+            }.onFailure { error ->
+                Toast.makeText(context, error.message ?: "导出失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     BackHandler {
         val now = System.currentTimeMillis()
@@ -165,6 +188,7 @@ private fun FitnessRecordApp(
                     tokenUsage = aiState.tokenUsage,
                     onThemeColorChange = aiSettingsViewModel::saveThemeColor,
                     onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
+                    onExportData = { exportLauncher.launch("fra-workout-export.json") },
                     onProviderChange = aiSettingsViewModel::updateProvider,
                     onBaseUrlChange = aiSettingsViewModel::updateBaseUrl,
                     onApiKeyChange = aiSettingsViewModel::updateApiKey,

@@ -145,7 +145,7 @@ fun AiModelSettingsCard(
                 onValueChange = onBaseUrlChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Base URL") },
-                placeholder = { Text("https://api.example.com/v1") },
+                placeholder = { Text("https://api.example.com/v1 或 http://127.0.0.1:8000/v1") },
                 singleLine = true
             )
             OutlinedTextField(
