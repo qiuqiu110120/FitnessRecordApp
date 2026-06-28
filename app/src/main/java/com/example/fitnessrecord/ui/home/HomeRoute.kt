@@ -150,7 +150,6 @@ fun HomeRoute(
                 uiState = uiState,
                 onOpenSettings = { showActionSettings = true },
                 onCalendarModeChange = viewModel::setCalendarMode,
-                onTrendModeChange = viewModel::setTrendMode,
                 onPreviousPeriod = viewModel::previousPeriod,
                 onNextPeriod = viewModel::nextPeriod,
                 onSelectDate = viewModel::selectDate,
@@ -166,7 +165,6 @@ private fun HomeScreen(
     uiState: HomeUiState,
     onOpenSettings: () -> Unit,
     onCalendarModeChange: (CalendarMode) -> Unit,
-    onTrendModeChange: (com.example.fitnessrecord.model.TrendMode) -> Unit,
     onPreviousPeriod: () -> Unit,
     onNextPeriod: () -> Unit,
     onSelectDate: (java.time.LocalDate) -> Unit,
@@ -198,12 +196,8 @@ private fun HomeScreen(
             SelectedDateCard(day = uiState.selectedWorkoutDay, onEditDate = onEditDate)
         }
 
-        item(key = "trend", contentType = "trend") {
-            TrendChartCard(
-                selectedMode = uiState.trendMode,
-                points = uiState.trend,
-                onModeChange = onTrendModeChange
-            )
+        item(key = "action-volume", contentType = "action-volume") {
+            ActionVolumeChartCard(day = uiState.selectedWorkoutDay)
         }
     }
 }
@@ -218,7 +212,7 @@ private fun HomeHeader(onOpenSettings: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("FRA", style = MaterialTheme.typography.headlineSmall)
             Text(
-                text = "日历、动作和训练趋势",
+                text = "日历、动作和训练容量",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

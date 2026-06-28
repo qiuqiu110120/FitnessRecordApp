@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.ui.ai
+﻿package com.example.fitnessrecord.ui.ai
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -41,7 +41,8 @@ class AiAdviceViewModel(
                     _uiState.value = AiAdviceUiState(
                         advice = result.advice,
                         dashboardData = dashboardData,
-                        tokenUsage = result.tokenUsage
+                        tokenUsage = result.tokenUsage,
+                        eventMessage = "AI建议已生成"
                     )
                 }
                 .onFailure { error ->
@@ -52,10 +53,15 @@ class AiAdviceViewModel(
                     }
                     _uiState.value = AiAdviceUiState(
                         dashboardData = dashboardData,
-                        errorMessage = message
+                        errorMessage = message,
+                        eventMessage = "获取AI建议失败：$message"
                     )
                 }
         }
+    }
+
+    fun consumeEventMessage() {
+        _uiState.value = _uiState.value.copy(eventMessage = null)
     }
 
     private fun startCountdown() {
@@ -64,7 +70,8 @@ class AiAdviceViewModel(
             loadingMessage = "正在提交训练数据给 AI",
             progress = 0f,
             remainingSeconds = AI_TIMEOUT_SECONDS,
-            errorMessage = null
+            errorMessage = null,
+            eventMessage = null
         )
         viewModelScope.launch {
             for (second in AI_TIMEOUT_SECONDS downTo 0) {
@@ -89,4 +96,5 @@ data class AiAdviceUiState(
     val dashboardData: AiDashboardData? = null,
     val tokenUsage: AiTokenUsage? = null,
     val errorMessage: String? = null,
+    val eventMessage: String? = null,
 )

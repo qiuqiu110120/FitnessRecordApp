@@ -28,6 +28,10 @@ class DataStoreSettingsRepository(
         preferences[THEME_COLOR] ?: "green"
     }
 
+    override val ignoredUpdateTag: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[IGNORED_UPDATE_TAG]
+    }
+
     override suspend fun saveAiProviderConfig(config: AiProviderConfig) {
         dataStore.edit { preferences ->
             preferences[PROVIDER] = config.provider.trim().ifBlank { "Mock" }
@@ -52,11 +56,18 @@ class DataStoreSettingsRepository(
         }
     }
 
+    override suspend fun ignoreUpdateTag(tag: String) {
+        dataStore.edit { preferences ->
+            preferences[IGNORED_UPDATE_TAG] = tag
+        }
+    }
+
     private companion object {
         val PROVIDER = stringPreferencesKey("ai_provider")
         val BASE_URL = stringPreferencesKey("ai_base_url")
         val API_KEY = stringPreferencesKey("ai_api_key")
         val MODEL = stringPreferencesKey("ai_model")
         val THEME_COLOR = stringPreferencesKey("theme_color")
+        val IGNORED_UPDATE_TAG = stringPreferencesKey("ignored_update_tag")
     }
 }

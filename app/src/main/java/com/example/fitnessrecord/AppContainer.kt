@@ -7,6 +7,8 @@ import androidx.room.Room
 import com.example.fitnessrecord.data.local.FitnessDatabase
 import com.example.fitnessrecord.data.repository.DefaultAiAdviceRepository
 import com.example.fitnessrecord.data.repository.DefaultWorkoutRepository
+import com.example.fitnessrecord.data.repository.GitHubUpdateRepository
+import com.example.fitnessrecord.data.repository.UpdateRepository
 import com.example.fitnessrecord.data.repository.WorkoutRepository
 import com.example.fitnessrecord.data.settings.DataStoreSettingsRepository
 import com.example.fitnessrecord.data.settings.SettingsRepository
@@ -14,6 +16,8 @@ import com.example.fitnessrecord.ui.ai.AiAdviceViewModel
 import com.example.fitnessrecord.ui.ai.AiSettingsViewModel
 import com.example.fitnessrecord.ui.home.HomeViewModel
 import com.example.fitnessrecord.ui.settings.AppSettingsViewModel
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 
 class AppContainer(context: Context) {
     private val database = Room.databaseBuilder(
@@ -25,6 +29,10 @@ class AppContainer(context: Context) {
     private val workoutRepository: WorkoutRepository = DefaultWorkoutRepository(database.workoutDao())
     private val settingsRepository: SettingsRepository = DataStoreSettingsRepository(context)
     private val aiAdviceRepository = DefaultAiAdviceRepository(workoutRepository, settingsRepository)
+    private val updateRepository: UpdateRepository = GitHubUpdateRepository(
+        client = OkHttpClient.Builder().build(),
+        json = Json { ignoreUnknownKeys = true }
+    )
 
     val homeViewModelFactory: ViewModelProvider.Factory = simpleViewModelFactory {
         HomeViewModel(workoutRepository)
@@ -39,7 +47,7 @@ class AppContainer(context: Context) {
     }
 
     val appSettingsViewModelFactory: ViewModelProvider.Factory = simpleViewModelFactory {
-        AppSettingsViewModel(settingsRepository)
+        AppSettingsViewModel(settingsRepository, updateRepository)
     }
 }
 

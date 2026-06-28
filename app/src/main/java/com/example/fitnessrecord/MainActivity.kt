@@ -1,6 +1,8 @@
-package com.example.fitnessrecord
+﻿package com.example.fitnessrecord
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -10,7 +12,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -26,7 +31,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitnessrecord.ui.ai.AiAdviceRoute
+import com.example.fitnessrecord.ui.ai.AiAdviceViewModel
+import com.example.fitnessrecord.ui.ai.AiSettingsViewModel
 import com.example.fitnessrecord.ui.home.HomeRoute
+import com.example.fitnessrecord.ui.home.HomeViewModel
+import com.example.fitnessrecord.ui.settings.AppSettingsViewModel
+import com.example.fitnessrecord.ui.settings.SettingsRoute
+import com.example.fitnessrecord.ui.settings.UpdateCheckState
 import com.example.fitnessrecord.ui.theme.FitnessRecordTheme
 
 class MainActivity : ComponentActivity() {
@@ -35,12 +46,15 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val app = application as FitnessRecordApplication
-            val settingsViewModel: com.example.fitnessrecord.ui.settings.AppSettingsViewModel = viewModel(
+            val settingsViewModel: AppSettingsViewModel = viewModel(
                 factory = app.appContainer.appSettingsViewModelFactory
             )
             val settingsState by settingsViewModel.uiState.collectAsState()
             FitnessRecordTheme(themeColorKey = settingsState.themeColorKey) {
-                FitnessRecordApp(app.appContainer)
+                FitnessRecordApp(
+                    appContainer = app.appContainer,
+                    appSettingsViewModel = settingsViewModel
+                )
             }
         }
     }
@@ -51,15 +65,24 @@ private enum class AppTab(
     val icon: ImageVector,
 ) {
     Home("首页", Icons.Outlined.CalendarMonth),
-    AiAdvice("AI 建议", Icons.Outlined.AutoAwesome),
+    AiAdvice("AI建议", Icons.Outlined.AutoAwesome),
+    Settings("设置", Icons.Outlined.Settings),
 }
 
 @Composable
-private fun FitnessRecordApp(appContainer: AppContainer) {
+private fun FitnessRecordApp(
+    appContainer: AppContainer,
+    appSettingsViewModel: AppSettingsViewModel,
+) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     val context = LocalContext.current
     val activity = context as? Activity
     var lastBackPressedAt by remember { mutableStateOf(0L) }
+    val appSettingsState by appSettingsViewModel.uiState.collectAsState()
+
+    val homeViewModel: HomeViewModel = viewModel(factory = appContainer.homeViewModelFactory)
+    val aiAdviceViewModel: AiAdviceViewModel = viewModel(factory = appContainer.aiAdviceViewModelFactory)
+    val aiSettingsViewModel: AiSettingsViewModel = viewModel(factory = appContainer.aiSettingsViewModelFactory)
 
     BackHandler {
         val now = System.currentTimeMillis()
@@ -69,6 +92,38 @@ private fun FitnessRecordApp(appContainer: AppContainer) {
             lastBackPressedAt = now
             Toast.makeText(context, "再按一次返回桌面", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    val release = appSettingsState.availableUpdate
+    if (appSettingsState.updateCheckState == UpdateCheckState.UpdateAvailable && release != null) {
+        AlertDialog(
+            onDismissRequest = appSettingsViewModel::dismissUpdate,
+            title = { Text("发现新版本") },
+            text = {
+                Text(
+                    text = "检测到 ${release.name}（${release.tagName}），建议更新后使用最新功能和修复。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        appSettingsViewModel.dismissUpdate()
+                        val updateUrl = release.apkUrl ?: release.pageUrl
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl)))
+                    }
+                ) {
+                    Text("立即更新")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = appSettingsViewModel::dismissUpdate) {
+                    Text("暂不更新")
+                }
+                TextButton(onClick = appSettingsViewModel::ignoreCurrentUpdate) {
+                    Text("不再提示")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -88,14 +143,37 @@ private fun FitnessRecordApp(appContainer: AppContainer) {
         when (selectedTab) {
             AppTab.Home -> HomeRoute(
                 innerPadding = innerPadding,
-                viewModel = viewModel(factory = appContainer.homeViewModelFactory)
+                viewModel = homeViewModel
             )
 
             AppTab.AiAdvice -> AiAdviceRoute(
                 innerPadding = innerPadding,
-                viewModel = viewModel(factory = appContainer.aiAdviceViewModelFactory),
-                settingsViewModel = viewModel(factory = appContainer.aiSettingsViewModelFactory)
+                viewModel = aiAdviceViewModel
             )
+
+            AppTab.Settings -> {
+                val aiState by aiAdviceViewModel.uiState.collectAsState()
+                val settingsState by aiSettingsViewModel.uiState.collectAsState()
+                SettingsRoute(
+                    innerPadding = innerPadding,
+                    themeColorKey = settingsState.themeColorKey,
+                    updateCheckState = appSettingsState.updateCheckState,
+                    availableUpdate = appSettingsState.availableUpdate,
+                    config = settingsState.draft,
+                    isTestingConnection = settingsState.isTestingConnection,
+                    testMessage = settingsState.testMessage,
+                    tokenUsage = aiState.tokenUsage,
+                    onThemeColorChange = aiSettingsViewModel::saveThemeColor,
+                    onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
+                    onProviderChange = aiSettingsViewModel::updateProvider,
+                    onBaseUrlChange = aiSettingsViewModel::updateBaseUrl,
+                    onApiKeyChange = aiSettingsViewModel::updateApiKey,
+                    onModelChange = aiSettingsViewModel::updateModel,
+                    onTestConnection = aiSettingsViewModel::testConnection,
+                    onSave = aiSettingsViewModel::save,
+                    onClear = aiSettingsViewModel::clear
+                )
+            }
         }
     }
 }

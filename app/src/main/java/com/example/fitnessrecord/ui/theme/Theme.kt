@@ -18,7 +18,7 @@ fun FitnessRecordTheme(
     themeColorKey: String = "green",
     content: @Composable () -> Unit,
 ) {
-    val seed = themeColorOption(themeColorKey).color
+    val seed = themeSeedColor(themeColorKey)
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
@@ -28,13 +28,21 @@ fun FitnessRecordTheme(
         darkTheme -> darkColorScheme(
             primary = seed.lighten(0.22f),
             secondary = seed.lighten(0.12f),
-            tertiary = Color(0xFF9E6B3E)
+            tertiary = seed.lighten(0.36f),
+            primaryContainer = seed.darken(0.28f),
+            secondaryContainer = seed.darken(0.36f),
+            tertiaryContainer = seed.darken(0.44f),
+            surfaceTint = seed.lighten(0.22f)
         )
 
         else -> lightColorScheme(
             primary = seed,
             secondary = seed.darken(0.08f),
-            tertiary = Color(0xFF8A5A2B)
+            tertiary = seed.lighten(0.18f),
+            primaryContainer = seed.lighten(0.82f),
+            secondaryContainer = seed.lighten(0.88f),
+            tertiaryContainer = seed.lighten(0.76f),
+            surfaceTint = seed
         )
     }
 

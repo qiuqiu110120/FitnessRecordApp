@@ -129,6 +129,7 @@ private fun AttendanceBarChart(points: List<AttendancePoint>) {
 
 @Composable
 private fun TypeBreakdownChart(points: List<AttendancePoint>) {
+    val chartColors = chartColors()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("训练类型分布", style = MaterialTheme.typography.titleSmall)
         if (points.isEmpty()) {
@@ -168,6 +169,7 @@ private fun DonutChart(
     points: List<AttendancePoint>,
     modifier: Modifier = Modifier,
 ) {
+    val chartColors = chartColors()
     val total = points.sumOf { it.count }.coerceAtLeast(1)
     Canvas(modifier = modifier) {
         val strokeWidth = 16.dp.toPx()
@@ -226,10 +228,14 @@ private fun cleanWeekLabel(label: String, index: Int): String {
     }
 }
 
-private val chartColors = listOf(
-    Color(0xFF4F8A5B),
-    Color(0xFF4F6FA8),
-    Color(0xFFC0804D),
-    Color(0xFF8A6BBE),
-    Color(0xFFB85D68),
-)
+@Composable
+private fun chartColors(): List<Color> {
+    val colorScheme = MaterialTheme.colorScheme
+    return listOf(
+        colorScheme.primary,
+        colorScheme.secondary,
+        colorScheme.tertiary,
+        colorScheme.primaryContainer,
+        colorScheme.secondaryContainer,
+    )
+}

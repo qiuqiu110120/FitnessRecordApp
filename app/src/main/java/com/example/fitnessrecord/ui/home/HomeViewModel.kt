@@ -4,9 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fitnessrecord.data.repository.WorkoutRepository
-import com.example.fitnessrecord.model.AttendancePoint
 import com.example.fitnessrecord.model.CustomAction
-import com.example.fitnessrecord.model.TrendMode
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
@@ -38,7 +36,6 @@ class HomeViewModel(
     private val selectedDate = MutableStateFlow(LocalDate.now())
     private val visibleMonth = MutableStateFlow(YearMonth.now())
     private val calendarMode = MutableStateFlow(CalendarMode.Month)
-    private val trendMode = MutableStateFlow(TrendMode.Weekly)
     private val editingDate = MutableStateFlow<LocalDate?>(null)
     private val editorDraft = MutableStateFlow<WorkoutDay?>(null)
     private val customActionDraft = MutableStateFlow("")
@@ -50,14 +47,6 @@ class HomeViewModel(
     private val recordDates = workoutRepository.observeRecordDates()
         .distinctUntilChanged()
 
-    private val trend = combine(
-        trendMode,
-        visibleMonth
-    ) { mode, month -> mode to month }
-        .distinctUntilChanged()
-        .flatMapLatest { (mode, month) -> workoutRepository.observeTrend(mode, month) }
-        .distinctUntilChanged()
-
     private val dateState = combine(
         selectedDate,
         visibleMonth,
@@ -67,11 +56,10 @@ class HomeViewModel(
     }.distinctUntilChanged()
 
     private val editorState = combine(
-        trendMode,
         editingDate,
         editorDraft
-    ) { trendMode, editingDate, editorDraft ->
-        HomeEditorState(trendMode = trendMode, editingDate = editingDate, editorDraft = editorDraft)
+    ) { editingDate, editorDraft ->
+        HomeEditorState(editingDate = editingDate, editorDraft = editorDraft)
     }.distinctUntilChanged()
 
     private val customActionState = combine(
@@ -85,15 +73,13 @@ class HomeViewModel(
         dateState,
         editorState,
         recordDates,
-        selectedWorkoutDay,
-        trend
-    ) { dateState, editorState, recordDates, selectedWorkoutDay, trend ->
+        selectedWorkoutDay
+    ) { dateState, editorState, recordDates, selectedWorkoutDay ->
         HomeContentState(
             dateState = dateState,
             editorState = editorState,
             recordDates = recordDates,
-            selectedWorkoutDay = selectedWorkoutDay,
-            trend = trend
+            selectedWorkoutDay = selectedWorkoutDay
         )
     }.distinctUntilChanged()
 
@@ -105,12 +91,10 @@ class HomeViewModel(
             selectedDate = contentState.dateState.selectedDate,
             visibleMonth = contentState.dateState.visibleMonth,
             calendarMode = contentState.dateState.calendarMode,
-            trendMode = contentState.editorState.trendMode,
             editingDate = contentState.editorState.editingDate,
             editorDraft = contentState.editorState.editorDraft,
             recordDates = contentState.recordDates,
             selectedWorkoutDay = contentState.selectedWorkoutDay,
-            trend = contentState.trend,
             customActions = customActionState.customActions,
             customActionDraft = customActionState.customActionDraft
         )
@@ -129,12 +113,6 @@ class HomeViewModel(
     fun setCalendarMode(mode: CalendarMode) {
         if (calendarMode.value != mode) {
             calendarMode.value = mode
-        }
-    }
-
-    fun setTrendMode(mode: TrendMode) {
-        if (trendMode.value != mode) {
-            trendMode.value = mode
         }
     }
 
@@ -331,7 +309,6 @@ private data class HomeDateState(
 
 @Immutable
 private data class HomeEditorState(
-    val trendMode: TrendMode,
     val editingDate: LocalDate?,
     val editorDraft: WorkoutDay?,
 )
@@ -342,7 +319,6 @@ private data class HomeContentState(
     val editorState: HomeEditorState,
     val recordDates: Set<LocalDate>,
     val selectedWorkoutDay: WorkoutDay,
-    val trend: List<AttendancePoint>,
 )
 
 @Immutable
@@ -356,12 +332,10 @@ data class HomeUiState(
     val selectedDate: LocalDate = LocalDate.now(),
     val visibleMonth: YearMonth = YearMonth.now(),
     val calendarMode: CalendarMode = CalendarMode.Month,
-    val trendMode: TrendMode = TrendMode.Weekly,
     val editingDate: LocalDate? = null,
     val editorDraft: WorkoutDay? = null,
     val recordDates: Set<LocalDate> = emptySet(),
     val selectedWorkoutDay: WorkoutDay = WorkoutDay(LocalDate.now()),
-    val trend: List<AttendancePoint> = emptyList(),
     val customActions: List<CustomAction> = emptyList(),
     val customActionDraft: String = "",
 )
