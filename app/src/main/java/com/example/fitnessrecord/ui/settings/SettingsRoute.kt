@@ -93,6 +93,7 @@ fun SettingsRoute(
     testMessage: AiConnectionTestMessage?,
     tokenUsage: AiTokenUsage?,
     runtimeLogText: String,
+    hasUnsavedAiConfig: Boolean,
     onThemeColorChange: (String) -> Unit,
     onCheckUpdates: () -> Unit,
     onExportData: () -> Unit,
@@ -154,6 +155,7 @@ fun SettingsRoute(
                 testMessage = testMessage,
                 tokenUsage = tokenUsage,
                 onProviderChange = onProviderChange,
+                hasUnsavedAiConfig = hasUnsavedAiConfig,
                 onBaseUrlChange = onBaseUrlChange,
                 onApiKeyChange = onApiKeyChange,
                 onModelChange = onModelChange,
@@ -444,6 +446,7 @@ private fun AiModelSettingsScreen(
     testMessage: AiConnectionTestMessage?,
     tokenUsage: AiTokenUsage?,
     onProviderChange: (String) -> Unit,
+    hasUnsavedAiConfig: Boolean,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
@@ -466,6 +469,9 @@ private fun AiModelSettingsScreen(
                 onApiKeyChange = onApiKeyChange,
                 onModelChange = onModelChange
             )
+        }
+        if (hasUnsavedAiConfig) {
+            item { UnsavedAiConfigCard() }
         }
         item { TokenUsageSettingsCard(tokenUsage) }
         item {
@@ -514,6 +520,27 @@ private fun AiModelSettingsScreen(
         val message = testMessage
         if (message != null) {
             item { ConnectionTestMessageCard(message) }
+        }
+    }
+}
+
+@Composable
+private fun UnsavedAiConfigCard() {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "配置尚未保存",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Text(
+                text = "你修改了大模型配置，但 AI 建议仍会使用上一次保存的配置。请点击保存，或点击测试连通性并通过后自动保存。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
         }
     }
 }
@@ -766,3 +793,6 @@ private fun versionEntrySubtitle(state: UpdateCheckState): String = when (state)
     is UpdateCheckState.Failed -> "检查更新失败"
     UpdateCheckState.Idle -> "当前版本 ${AppVersion.NAME}"
 }
+
+
+

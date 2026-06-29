@@ -18,6 +18,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 
 class OpenAiCompatibleApiService(
@@ -166,7 +169,28 @@ class OpenAiCompatibleApiService(
             }
             return IOException(suggestion, this)
         }
+        if (isConnectionTimeout()) {
+            return IOException(
+                "当前设备无法连接到大模型 Base URL：$baseUrl。请检查域名、端口、防火墙、反向代理和手机网络/代理；如果域名走 Cloudflare，请优先改用 443/8443 等可访问端口或关闭代理后直连源站。",
+                this
+            )
+        }
+        if (this is UnknownHostException) {
+            return IOException("无法解析大模型 Base URL 的域名，请检查域名是否正确或当前网络 DNS 是否可用。", this)
+        }
+        if (this is ConnectException) {
+            return IOException("无法连接到大模型服务，请确认服务已启动、端口已开放，且手机网络可以访问该地址。", this)
+        }
         return this
+    }
+
+    private fun Throwable.isConnectionTimeout(): Boolean {
+        if (this is SocketTimeoutException) return true
+        val text = buildString {
+            append(message.orEmpty())
+            cause?.message?.let { append(' ').append(it) }
+        }.lowercase()
+        return "failed to connect" in text || "timeout" in text || "timed out" in text
     }
 
     private fun String.stripJsonFence(): String {
@@ -204,9 +228,10 @@ class OpenAiCompatibleApiService(
     private companion object {
         val jsonMediaType = "application/json; charset=utf-8".toMediaType()
         val defaultClient = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(190, TimeUnit.SECONDS)
             .build()
         val defaultJson = Json { ignoreUnknownKeys = true }
         val systemPrompt = """
@@ -343,3 +368,6 @@ private data class NextWeekSuggestionResponse(
         suggestion = suggestion.ifBlank { "根据身体状态安排低到中等强度训练。" }
     )
 }
+
+
+

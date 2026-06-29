@@ -217,6 +217,7 @@ private fun FitnessRecordApp(
                     isTestingConnection = settingsState.isTestingConnection,
                     testMessage = settingsState.testMessage,
                     tokenUsage = aiState.tokenUsage,
+                    hasUnsavedAiConfig = settingsState.hasUnsavedChanges,
                     runtimeLogText = runtimeLogText,
                     onThemeColorChange = aiSettingsViewModel::saveThemeColor,
                     onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
@@ -246,3 +247,5 @@ private fun FitnessRecordApp(
 }
 
 private const val BACK_EXIT_INTERVAL_MS = 2_000L
+
+

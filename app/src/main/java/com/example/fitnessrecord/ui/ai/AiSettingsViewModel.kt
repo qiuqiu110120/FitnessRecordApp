@@ -53,7 +53,7 @@ class AiSettingsViewModel(
             _uiState.value = _uiState.value.copy(isTestingConnection = true, testMessage = null)
             val draft = _uiState.value.draft
             AppLogger.i("AiSettings", "Testing AI connection. baseUrl=${draft.baseUrl}, provider=${draft.provider}, model=${draft.model}")
-            runCatching { withTimeout(20_000) { OpenAiCompatibleApiService(draft).testConnection() } }
+            runCatching { withTimeout(40_000) { OpenAiCompatibleApiService(draft).testConnection() } }
                 .onSuccess { message ->
                     settingsRepository.saveAiProviderConfig(draft)
                     _uiState.value = _uiState.value.copy(
@@ -79,14 +79,25 @@ class AiSettingsViewModel(
 
     fun save() {
         viewModelScope.launch {
-            settingsRepository.saveAiProviderConfig(_uiState.value.draft)
-            AppLogger.i("AiSettings", "AI provider config saved manually. model=${_uiState.value.draft.model}")
+            val draft = _uiState.value.draft
+            settingsRepository.saveAiProviderConfig(draft)
+            _uiState.value = _uiState.value.copy(
+                config = draft,
+                draft = draft,
+                testMessage = AiConnectionTestMessage(isSuccess = true, text = "配置已保存，AI 建议会使用当前大模型。")
+            )
+            AppLogger.i("AiSettings", "AI provider config saved manually. model=${draft.model}")
         }
     }
 
     fun clear() {
         viewModelScope.launch {
             settingsRepository.clearAiProviderConfig()
+            _uiState.value = _uiState.value.copy(
+                config = AiProviderConfig(),
+                draft = AiProviderConfig(),
+                testMessage = AiConnectionTestMessage(isSuccess = true, text = "配置已清除，将使用本地 Mock 建议。")
+            )
             AppLogger.i("AiSettings", "AI provider config cleared")
         }
     }
@@ -111,12 +122,11 @@ data class AiSettingsUiState(
     val themeColorKey: String = "green",
     val isTestingConnection: Boolean = false,
     val testMessage: AiConnectionTestMessage? = null,
-)
+) {
+    val hasUnsavedChanges: Boolean = draft != config
+}
 
 data class AiConnectionTestMessage(
     val isSuccess: Boolean,
     val text: String,
 )
-
-
-
