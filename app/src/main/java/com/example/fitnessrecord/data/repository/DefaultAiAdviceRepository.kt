@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.data.repository
+﻿package com.example.fitnessrecord.data.repository
 
 import com.example.fitnessrecord.data.remote.ApiService
 import com.example.fitnessrecord.data.remote.MockAiApiService
@@ -8,7 +8,9 @@ import com.example.fitnessrecord.model.AiAdviceRequest
 import com.example.fitnessrecord.model.AiAdviceResult
 import com.example.fitnessrecord.model.AiDashboardData
 import com.example.fitnessrecord.model.AiProviderConfig
+import com.example.fitnessrecord.model.AiWorkoutAction
 import com.example.fitnessrecord.model.AiWorkoutRecord
+import com.example.fitnessrecord.model.AiWorkoutSet
 import com.example.fitnessrecord.model.AttendancePoint
 import com.example.fitnessrecord.model.TrendMode
 import kotlinx.coroutines.flow.first
@@ -65,15 +67,23 @@ class DefaultAiAdviceRepository(
                     date = day.date.format(DateTimeFormatter.ISO_LOCAL_DATE),
                     trainingType = day.trainingType,
                     durationMinutes = day.durationMinutes,
-                    notes = day.notes
+                    notes = day.notes,
+                    actions = day.actions.map { action ->
+                        AiWorkoutAction(
+                            name = action.name,
+                            sets = action.sets.map { set ->
+                                AiWorkoutSet(reps = set.reps, weightKg = set.weightKg)
+                            }
+                        )
+                    }
                 )
             }
     }
 
     private fun AiProviderConfig.shouldUseMock(): Boolean {
-        return provider.equals("Mock", ignoreCase = true) ||
-            baseUrl.isBlank() ||
-            apiKey.isBlank() ||
-            model.isBlank()
+        val hasRealProviderConfig = baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
+        return !hasRealProviderConfig
     }
 }
+
+

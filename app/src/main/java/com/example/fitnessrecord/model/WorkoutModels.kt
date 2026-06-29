@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.model
+﻿package com.example.fitnessrecord.model
 
 import androidx.compose.runtime.Immutable
 import java.time.LocalDate
@@ -88,6 +88,19 @@ data class AiWorkoutRecord(
     val trainingType: String,
     val durationMinutes: Int?,
     val notes: String,
+    val actions: List<AiWorkoutAction> = emptyList(),
+)
+
+@Immutable
+data class AiWorkoutAction(
+    val name: String,
+    val sets: List<AiWorkoutSet> = emptyList(),
+)
+
+@Immutable
+data class AiWorkoutSet(
+    val reps: Int?,
+    val weightKg: Double?,
 )
 
 @Immutable
@@ -103,3 +116,4 @@ data class AiProviderConfig(
     val apiKey: String = "",
     val model: String = "",
 )
+

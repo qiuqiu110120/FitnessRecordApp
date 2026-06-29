@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.data.remote
+﻿package com.example.fitnessrecord.data.remote
 
 import com.example.fitnessrecord.model.AiAdvice
 import com.example.fitnessrecord.model.AiAdviceRequest
@@ -172,7 +172,15 @@ class OpenAiCompatibleApiService(
                 date = record.date,
                 trainingType = record.trainingType,
                 durationMinutes = record.durationMinutes,
-                notes = record.notes
+                notes = record.notes,
+                actions = record.actions.map { action ->
+                    AiPromptAction(
+                        name = action.name,
+                        sets = action.sets.map { set ->
+                            AiPromptSet(reps = set.reps, weightKg = set.weightKg)
+                        }
+                    )
+                }
             )
         },
         attendanceTrend = attendanceTrend.map { point ->
@@ -272,6 +280,19 @@ private data class AiPromptRecord(
     val trainingType: String,
     val durationMinutes: Int?,
     val notes: String,
+    val actions: List<AiPromptAction>,
+)
+
+@Serializable
+private data class AiPromptAction(
+    val name: String,
+    val sets: List<AiPromptSet>,
+)
+
+@Serializable
+private data class AiPromptSet(
+    val reps: Int?,
+    val weightKg: Double?,
 )
 
 @Serializable
@@ -309,3 +330,4 @@ private data class NextWeekSuggestionResponse(
         suggestion = suggestion.ifBlank { "根据身体状态安排低到中等强度训练。" }
     )
 }
+

@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.ui.ai
+﻿package com.example.fitnessrecord.ui.ai
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -53,9 +53,12 @@ class AiSettingsViewModel(
             val draft = _uiState.value.draft
             runCatching { withTimeout(20_000) { OpenAiCompatibleApiService(draft).testConnection() } }
                 .onSuccess { message ->
+                    settingsRepository.saveAiProviderConfig(draft)
                     _uiState.value = _uiState.value.copy(
+                        config = draft,
+                        draft = draft,
                         isTestingConnection = false,
-                        testMessage = AiConnectionTestMessage(isSuccess = true, text = message)
+                        testMessage = AiConnectionTestMessage(isSuccess = true, text = "$message\n配置已保存，AI 建议会使用当前大模型。")
                     )
                 }
                 .onFailure { error ->
@@ -109,3 +112,4 @@ data class AiConnectionTestMessage(
     val isSuccess: Boolean,
     val text: String,
 )
+

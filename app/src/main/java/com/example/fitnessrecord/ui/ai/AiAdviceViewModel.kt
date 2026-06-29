@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
-private const val AI_TIMEOUT_SECONDS = 20
+private const val AI_TIMEOUT_SECONDS = 60
 
 class AiAdviceViewModel(
     private val aiAdviceRepository: AiAdviceRepository,
@@ -48,7 +48,7 @@ class AiAdviceViewModel(
                 .onFailure { error ->
                     val dashboardData = runCatching { dashboardDeferred.await() }.getOrNull()
                     val message = when (error) {
-                        is TimeoutCancellationException -> "生成超时，请检查网络、大模型 Base URL 或稍后重试。"
+                        is TimeoutCancellationException -> "生成超时，请检查网络、大模型 Base URL、模型响应速度或稍后重试。"
                         else -> error.message ?: "生成建议失败，请检查大模型配置和网络状态。"
                     }
                     _uiState.value = AiAdviceUiState(
@@ -98,3 +98,4 @@ data class AiAdviceUiState(
     val errorMessage: String? = null,
     val eventMessage: String? = null,
 )
+
