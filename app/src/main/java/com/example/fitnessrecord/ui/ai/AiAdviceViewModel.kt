@@ -24,7 +24,45 @@ class AiAdviceViewModel(
     val uiState: StateFlow<AiAdviceUiState> = _uiState.asStateFlow()
 
     init {
-        loadDashboardData()
+        refreshDashboardData(showLoading = true)
+    }
+
+    fun refreshDashboardData(showLoading: Boolean = false) {
+        if (_uiState.value.isLoading) return
+        viewModelScope.launch {
+            if (showLoading) {
+                _uiState.value = _uiState.value.copy(isDashboardLoading = true)
+            }
+            AppLogger.i("AiAdvice", "Refreshing local AI dashboard data")
+            runCatching {
+                val dashboardData = aiAdviceRepository.getDashboardData()
+                val cachedAdvice = aiAdviceRepository.getCachedAdvice(dashboardData)
+                dashboardData to cachedAdvice
+            }
+                .onSuccess { (dashboardData, cachedAdvice) ->
+                    val previousDashboard = _uiState.value.dashboardData
+                    val dashboardChanged = previousDashboard != null && previousDashboard != dashboardData
+                    _uiState.value = _uiState.value.copy(
+                        isDashboardLoading = false,
+                        dashboardData = dashboardData,
+                        advice = cachedAdvice?.advice ?: if (dashboardChanged) null else _uiState.value.advice,
+                        tokenUsage = cachedAdvice?.tokenUsage ?: if (dashboardChanged) null else _uiState.value.tokenUsage,
+                        errorMessage = null,
+                        eventMessage = when {
+                            cachedAdvice != null && _uiState.value.advice == null -> "已加载上次AI建议"
+                            dashboardChanged -> "训练数据已更新，请重新获取AI建议"
+                            else -> _uiState.value.eventMessage
+                        }
+                    )
+                }
+                .onFailure { error ->
+                    AppLogger.e("AiAdvice", "Local AI dashboard data refresh failed", error)
+                    _uiState.value = _uiState.value.copy(
+                        isDashboardLoading = false,
+                        errorMessage = error.message ?: "读取本地训练统计失败。"
+                    )
+                }
+        }
     }
 
     fun refresh() {
@@ -44,7 +82,7 @@ class AiAdviceViewModel(
                         advice = result.advice,
                         dashboardData = dashboardData,
                         tokenUsage = result.tokenUsage,
-                        eventMessage = "AI建议已生成"
+                        eventMessage = "AI建议已生成并保存"
                     )
                 }
                 .onFailure { error ->
@@ -70,27 +108,6 @@ class AiAdviceViewModel(
 
     fun consumeEventMessage() {
         _uiState.value = _uiState.value.copy(eventMessage = null)
-    }
-
-    private fun loadDashboardData() {
-        viewModelScope.launch {
-            AppLogger.i("AiAdvice", "Loading local AI dashboard data")
-            runCatching { aiAdviceRepository.getDashboardData() }
-                .onSuccess { dashboardData ->
-                    _uiState.value = _uiState.value.copy(
-                        isDashboardLoading = false,
-                        dashboardData = dashboardData,
-                        errorMessage = null
-                    )
-                }
-                .onFailure { error ->
-                    AppLogger.e("AiAdvice", "Local AI dashboard data load failed", error)
-                    _uiState.value = _uiState.value.copy(
-                        isDashboardLoading = false,
-                        errorMessage = error.message ?: "读取本地训练统计失败。"
-                    )
-                }
-        }
     }
 
     private fun startCountdown() {
@@ -129,4 +146,3 @@ data class AiAdviceUiState(
     val errorMessage: String? = null,
     val eventMessage: String? = null,
 )
-

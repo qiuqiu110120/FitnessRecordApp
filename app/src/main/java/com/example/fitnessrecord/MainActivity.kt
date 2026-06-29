@@ -87,6 +87,9 @@ private fun FitnessRecordApp(
     appSettingsViewModel: AppSettingsViewModel,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
+    var homeResetKey by rememberSaveable { mutableStateOf(0) }
+    var aiResetKey by rememberSaveable { mutableStateOf(0) }
+    var settingsResetKey by rememberSaveable { mutableStateOf(0) }
     val context = LocalContext.current
     val activity = context as? Activity
     var lastBackPressedAt by remember { mutableStateOf(0L) }
@@ -186,7 +189,16 @@ private fun FitnessRecordApp(
                 AppTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
+                        onClick = {
+                            if (selectedTab != tab) {
+                                selectedTab = tab
+                                when (tab) {
+                                    AppTab.Home -> homeResetKey++
+                                    AppTab.AiAdvice -> aiResetKey++
+                                    AppTab.Settings -> settingsResetKey++
+                                }
+                            }
+                        },
                         icon = { Icon(imageVector = tab.icon, contentDescription = null) },
                         label = { Text(text = tab.label) }
                     )
@@ -197,12 +209,14 @@ private fun FitnessRecordApp(
         when (selectedTab) {
             AppTab.Home -> HomeRoute(
                 innerPadding = innerPadding,
-                viewModel = homeViewModel
+                viewModel = homeViewModel,
+                resetKey = homeResetKey
             )
 
             AppTab.AiAdvice -> AiAdviceRoute(
                 innerPadding = innerPadding,
-                viewModel = aiAdviceViewModel
+                viewModel = aiAdviceViewModel,
+                resetKey = aiResetKey
             )
 
             AppTab.Settings -> {
@@ -218,6 +232,7 @@ private fun FitnessRecordApp(
                     testMessage = settingsState.testMessage,
                     tokenUsage = aiState.tokenUsage,
                     hasUnsavedAiConfig = settingsState.hasUnsavedChanges,
+                    resetKey = settingsResetKey,
                     runtimeLogText = runtimeLogText,
                     onThemeColorChange = aiSettingsViewModel::saveThemeColor,
                     onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
@@ -247,5 +262,7 @@ private fun FitnessRecordApp(
 }
 
 private const val BACK_EXIT_INTERVAL_MS = 2_000L
+
+
 
 

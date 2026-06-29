@@ -1,6 +1,7 @@
 ﻿package com.example.fitnessrecord.model
 
 import androidx.compose.runtime.Immutable
+import kotlinx.serialization.Serializable
 import java.time.LocalDate
 
 @Immutable
@@ -116,4 +117,5 @@ data class AiProviderConfig(
     val apiKey: String = "",
     val model: String = "",
 )
+
 

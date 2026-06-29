@@ -77,7 +77,6 @@ private enum class SettingsSection(val title: String) {
     Theme("主题配色"),
     AiModel("大模型配置"),
     Export("数据导出"),
-    Logs("运行日志"),
     Version("版本信息"),
 }
 
@@ -94,6 +93,7 @@ fun SettingsRoute(
     tokenUsage: AiTokenUsage?,
     runtimeLogText: String,
     hasUnsavedAiConfig: Boolean,
+    resetKey: Int,
     onThemeColorChange: (String) -> Unit,
     onCheckUpdates: () -> Unit,
     onExportData: () -> Unit,
@@ -109,6 +109,10 @@ fun SettingsRoute(
     onClear: () -> Unit,
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Home) }
+
+    LaunchedEffect(resetKey) {
+        section = SettingsSection.Home
+    }
 
     if (section != SettingsSection.Home) {
         BackHandler { section = SettingsSection.Home }
@@ -138,7 +142,6 @@ fun SettingsRoute(
                 onOpenTheme = { section = SettingsSection.Theme },
                 onOpenAiModel = { section = SettingsSection.AiModel },
                 onOpenExport = { section = SettingsSection.Export },
-                onOpenLogs = { section = SettingsSection.Logs },
                 onOpenVersion = { section = SettingsSection.Version }
             )
 
@@ -167,21 +170,16 @@ fun SettingsRoute(
             SettingsSection.Export -> ExportDataScreen(
                 innerPadding = contentPadding,
                 onExportData = onExportData
-            )
-
-            SettingsSection.Logs -> RuntimeLogScreen(
-                innerPadding = contentPadding,
-                logText = runtimeLogText,
-                onRefreshLogs = onRefreshLogs,
-                onClearLogs = onClearLogs,
-                onExportLogs = onExportLogs
-            )
-
+            )
             SettingsSection.Version -> VersionInfoScreen(
                 innerPadding = contentPadding,
                 updateCheckState = updateCheckState,
                 availableUpdate = availableUpdate,
-                onCheckUpdates = onCheckUpdates
+                logText = runtimeLogText,
+                onCheckUpdates = onCheckUpdates,
+                onRefreshLogs = onRefreshLogs,
+                onClearLogs = onClearLogs,
+                onExportLogs = onExportLogs
             )
         }
     }
@@ -196,7 +194,6 @@ private fun SettingsHomeScreen(
     onOpenTheme: () -> Unit,
     onOpenAiModel: () -> Unit,
     onOpenExport: () -> Unit,
-    onOpenLogs: () -> Unit,
     onOpenVersion: () -> Unit,
 ) {
     val themeName = ThemeColorOptions.firstOrNull { it.key == themeColorKey }?.label ?: themeColorKey
@@ -230,15 +227,7 @@ private fun SettingsHomeScreen(
                 icon = Icons.Outlined.FileDownload,
                 onClick = onOpenExport
             )
-        }
-        item {
-            SettingsEntryCard(
-                title = "运行日志",
-                subtitle = "查看、导出或清空错误信息",
-                icon = Icons.Outlined.Article,
-                onClick = onOpenLogs
-            )
-        }
+        }
         item {
             SettingsEntryCard(
                 title = "版本信息",
@@ -309,33 +298,25 @@ private fun ExportDataScreen(
     innerPadding: PaddingValues,
     onExportData: () -> Unit,
 ) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("导出健身数据", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "导出为 JSON 文件，包含训练日期、类型、时长、备注、动作、组数、次数和重量。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onExportData
                 ) {
-                    Text("导出健身数据", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "导出为 JSON 文件，包含训练日期、类型、时长、备注、动作、组数、次数和重量。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onExportData
-                    ) {
-                        Icon(Icons.Outlined.FileDownload, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("导出 JSON")
-                    }
+                    Icon(Icons.Outlined.FileDownload, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("导出 JSON")
                 }
             }
         }
@@ -343,8 +324,7 @@ private fun ExportDataScreen(
 }
 
 @Composable
-private fun RuntimeLogScreen(
-    innerPadding: PaddingValues,
+private fun RuntimeLogCard(
     logText: String,
     onRefreshLogs: () -> Unit,
     onClearLogs: () -> Unit,
@@ -354,69 +334,59 @@ private fun RuntimeLogScreen(
         onRefreshLogs()
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("运行日志", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "这里保存 App 启动、AI 请求、导出等关键运行信息。导出后可以把 txt 文件发给我定位问题。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("运行日志", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "这里保存 App 启动、AI 请求、导出等关键运行信息。导出后可以把 txt 文件发给我定位问题。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = onRefreshLogs
                     ) {
-                        OutlinedButton(
-                            modifier = Modifier.weight(1f),
-                            onClick = onRefreshLogs
-                        ) {
-                            Icon(Icons.Outlined.Refresh, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("刷新")
-                        }
-                        OutlinedButton(
-                            modifier = Modifier.weight(1f),
-                            onClick = onClearLogs
-                        ) {
-                            Icon(Icons.Outlined.Delete, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("清空")
-                        }
-                    }
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onExportLogs
-                    ) {
-                        Icon(Icons.Outlined.FileDownload, contentDescription = null)
+                        Icon(Icons.Outlined.Refresh, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("导出日志 TXT")
+                        Text("刷新")
                     }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = onClearLogs
+                    ) {
+                        Icon(Icons.Outlined.Delete, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("清空")
+                    }
+                }
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onExportLogs
+                ) {
+                    Icon(Icons.Outlined.FileDownload, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("导出日志 TXT")
                 }
             }
         }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Text(
-                    text = logText,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Text(
+                text = logText,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
@@ -704,7 +674,11 @@ private fun VersionInfoScreen(
     innerPadding: PaddingValues,
     updateCheckState: UpdateCheckState,
     availableUpdate: AppRelease?,
+    logText: String,
     onCheckUpdates: () -> Unit,
+    onRefreshLogs: () -> Unit,
+    onClearLogs: () -> Unit,
+    onExportLogs: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -769,6 +743,14 @@ private fun VersionInfoScreen(
                 }
             }
         }
+        item {
+            RuntimeLogCard(
+                logText = logText,
+                onRefreshLogs = onRefreshLogs,
+                onClearLogs = onClearLogs,
+                onExportLogs = onExportLogs
+            )
+        }
     }
 }
 
@@ -793,6 +775,10 @@ private fun versionEntrySubtitle(state: UpdateCheckState): String = when (state)
     is UpdateCheckState.Failed -> "检查更新失败"
     UpdateCheckState.Idle -> "当前版本 ${AppVersion.NAME}"
 }
+
+
+
+
 
 
 

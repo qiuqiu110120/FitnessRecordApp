@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.ui.home
+﻿package com.example.fitnessrecord.ui.home
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,10 +47,16 @@ import java.util.Locale
 fun HomeRoute(
     innerPadding: PaddingValues,
     viewModel: HomeViewModel,
+    resetKey: Int,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val editorDraft = uiState.editorDraft
     var showActionSettings by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(resetKey) {
+        showActionSettings = false
+        viewModel.closeEditor()
+    }
 
     when {
         showActionSettings -> {
@@ -58,7 +65,7 @@ fun HomeRoute(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
                     TopAppBar(
-                        title = { Text("管理") },
+                        title = { Text("管理动作") },
                         navigationIcon = {
                             IconButton(onClick = { showActionSettings = false }) {
                                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
@@ -191,7 +198,7 @@ private fun HomeHeader(onOpenSettings: () -> Unit) {
             )
         }
         IconButton(onClick = onOpenSettings) {
-            Icon(Icons.Outlined.Settings, contentDescription = "管理")
+            Icon(Icons.Outlined.Settings, contentDescription = "管理动作")
         }
     }
 }

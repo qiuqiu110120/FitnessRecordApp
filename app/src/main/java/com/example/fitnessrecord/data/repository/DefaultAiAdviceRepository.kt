@@ -14,6 +14,8 @@ import com.example.fitnessrecord.model.AiWorkoutSet
 import com.example.fitnessrecord.model.AttendancePoint
 import com.example.fitnessrecord.model.TrendMode
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
@@ -21,6 +23,7 @@ class DefaultAiAdviceRepository(
     private val workoutRepository: WorkoutRepository,
     private val settingsRepository: SettingsRepository,
     private val mockApiService: ApiService = MockAiApiService(),
+    private val json: Json = Json { ignoreUnknownKeys = true },
 ) : AiAdviceRepository {
     override suspend fun generateAdvice(): AiAdviceResult {
         val currentMonth = YearMonth.now()
@@ -29,11 +32,17 @@ class DefaultAiAdviceRepository(
         val request = AiAdviceRequest(records = records, attendanceTrend = trend)
         val config = settingsRepository.aiProviderConfig.first()
 
-        return if (config.shouldUseMock()) {
+        val result = if (config.shouldUseMock()) {
             mockApiService.requestAiAdvice(request)
         } else {
             OpenAiCompatibleApiService(config).requestAiAdvice(request)
         }
+        val dashboardData = getDashboardData()
+        settingsRepository.saveAiAdviceCache(
+            json = json.encodeToString(result),
+            fingerprint = dashboardData.fingerprint()
+        )
+        return result
     }
 
     override suspend fun getDashboardData(): AiDashboardData {
@@ -58,6 +67,13 @@ class DefaultAiAdviceRepository(
         )
     }
 
+    override suspend fun getCachedAdvice(dashboardData: AiDashboardData): AiAdviceResult? {
+        val cachedJson = settingsRepository.cachedAiAdviceJson.first() ?: return null
+        val cachedFingerprint = settingsRepository.cachedAiAdviceFingerprint.first() ?: return null
+        if (cachedFingerprint != dashboardData.fingerprint()) return null
+        return runCatching { json.decodeFromString<AiAdviceResult>(cachedJson) }.getOrNull()
+    }
+
     private suspend fun currentMonthRecords(month: YearMonth): List<AiWorkoutRecord> {
         return workoutRepository.observeWorkoutDays().first()
             .filter { YearMonth.from(it.date) == month }
@@ -80,10 +96,18 @@ class DefaultAiAdviceRepository(
             }
     }
 
+    private fun AiDashboardData.fingerprint(): String = buildString {
+        append(totalTrainingDays).append('|')
+        append(totalMinutes).append('|')
+        append(totalActions).append('|')
+        append(totalSets).append('|')
+        attendanceTrend.forEach { append(it.label).append(':').append(it.count).append(';') }
+        append('|')
+        typeBreakdown.forEach { append(it.label).append(':').append(it.count).append(';') }
+    }
+
     private fun AiProviderConfig.shouldUseMock(): Boolean {
         val hasRealProviderConfig = baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
         return !hasRealProviderConfig
     }
 }
-
-

@@ -45,9 +45,14 @@ import com.example.fitnessrecord.model.AiDashboardData
 fun AiAdviceRoute(
     innerPadding: PaddingValues,
     viewModel: AiAdviceViewModel,
+    resetKey: Int,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(resetKey) {
+        viewModel.refreshDashboardData()
+    }
 
     LaunchedEffect(uiState.eventMessage) {
         val message = uiState.eventMessage
@@ -294,3 +299,6 @@ private fun ListAdviceCard(
         }
     }
 }
+
+
+

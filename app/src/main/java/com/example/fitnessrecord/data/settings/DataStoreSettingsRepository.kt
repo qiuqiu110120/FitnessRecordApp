@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.data.settings
+﻿package com.example.fitnessrecord.data.settings
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
@@ -32,6 +32,14 @@ class DataStoreSettingsRepository(
         preferences[IGNORED_UPDATE_TAG]
     }
 
+    override val cachedAiAdviceJson: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[CACHED_AI_ADVICE_JSON]
+    }
+
+    override val cachedAiAdviceFingerprint: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[CACHED_AI_ADVICE_FINGERPRINT]
+    }
+
     override suspend fun saveAiProviderConfig(config: AiProviderConfig) {
         dataStore.edit { preferences ->
             preferences[PROVIDER] = config.provider.trim().ifBlank { "Mock" }
@@ -62,6 +70,20 @@ class DataStoreSettingsRepository(
         }
     }
 
+    override suspend fun saveAiAdviceCache(json: String, fingerprint: String) {
+        dataStore.edit { preferences ->
+            preferences[CACHED_AI_ADVICE_JSON] = json
+            preferences[CACHED_AI_ADVICE_FINGERPRINT] = fingerprint
+        }
+    }
+
+    override suspend fun clearAiAdviceCache() {
+        dataStore.edit { preferences ->
+            preferences.remove(CACHED_AI_ADVICE_JSON)
+            preferences.remove(CACHED_AI_ADVICE_FINGERPRINT)
+        }
+    }
+
     private companion object {
         val PROVIDER = stringPreferencesKey("ai_provider")
         val BASE_URL = stringPreferencesKey("ai_base_url")
@@ -69,5 +91,7 @@ class DataStoreSettingsRepository(
         val MODEL = stringPreferencesKey("ai_model")
         val THEME_COLOR = stringPreferencesKey("theme_color")
         val IGNORED_UPDATE_TAG = stringPreferencesKey("ignored_update_tag")
+        val CACHED_AI_ADVICE_JSON = stringPreferencesKey("cached_ai_advice_json")
+        val CACHED_AI_ADVICE_FINGERPRINT = stringPreferencesKey("cached_ai_advice_fingerprint")
     }
 }
