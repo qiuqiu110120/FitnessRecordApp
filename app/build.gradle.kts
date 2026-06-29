@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.fitnessrecord"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.1.16"
+        versionCode = 18
+        versionName = "0.1.17"
     }
 
     buildTypes {
@@ -69,5 +69,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 }
+
 
 

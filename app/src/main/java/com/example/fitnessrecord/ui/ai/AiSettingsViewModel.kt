@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.fitnessrecord.data.remote.OpenAiCompatibleApiService
 import com.example.fitnessrecord.data.settings.SettingsRepository
 import com.example.fitnessrecord.model.AiProviderConfig
+import com.example.fitnessrecord.util.AppLogger
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +52,7 @@ class AiSettingsViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isTestingConnection = true, testMessage = null)
             val draft = _uiState.value.draft
+            AppLogger.i("AiSettings", "Testing AI connection. baseUrl=${draft.baseUrl}, provider=${draft.provider}, model=${draft.model}")
             runCatching { withTimeout(20_000) { OpenAiCompatibleApiService(draft).testConnection() } }
                 .onSuccess { message ->
                     settingsRepository.saveAiProviderConfig(draft)
@@ -62,6 +64,7 @@ class AiSettingsViewModel(
                     )
                 }
                 .onFailure { error ->
+                    AppLogger.e("AiSettings", "AI connection test failed. baseUrl=${draft.baseUrl}, model=${draft.model}", error)
                     val message = when (error) {
                         is TimeoutCancellationException -> "连接超时，请检查网络、Base URL 或代理。"
                         else -> error.message ?: "连接失败，请检查 Base URL、API Key 和模型名称。"
@@ -77,12 +80,14 @@ class AiSettingsViewModel(
     fun save() {
         viewModelScope.launch {
             settingsRepository.saveAiProviderConfig(_uiState.value.draft)
+            AppLogger.i("AiSettings", "AI provider config saved manually. model=${_uiState.value.draft.model}")
         }
     }
 
     fun clear() {
         viewModelScope.launch {
             settingsRepository.clearAiProviderConfig()
+            AppLogger.i("AiSettings", "AI provider config cleared")
         }
     }
 
@@ -112,4 +117,6 @@ data class AiConnectionTestMessage(
     val isSuccess: Boolean,
     val text: String,
 )
+
+
 

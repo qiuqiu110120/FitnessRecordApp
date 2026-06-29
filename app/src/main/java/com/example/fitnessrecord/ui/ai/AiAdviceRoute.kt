@@ -21,7 +21,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -59,27 +58,45 @@ fun AiAdviceRoute(
     }
 
     Scaffold(
-            modifier = Modifier.padding(innerPadding),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                TopAppBar(
-                    title = { Text("AI 健身建议") },
-                )
-            }
-        ) { contentPadding ->
-            val errorMessage = uiState.errorMessage
-            val advice = uiState.advice
-            when {
-                uiState.isLoading -> LoadingAdvice(
-                    innerPadding = contentPadding,
-                    message = uiState.loadingMessage,
-                    progress = uiState.progress,
-                    remainingSeconds = uiState.remainingSeconds
-                )
-                errorMessage != null -> ErrorAdvice(contentPadding, errorMessage, uiState.dashboardData, viewModel::refresh)
-                advice != null -> AiAdviceContent(contentPadding, advice, uiState.dashboardData, uiState.isLoading, viewModel::refresh)
-            }
+        modifier = Modifier.padding(innerPadding),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = { TopAppBar(title = { Text("AI 健身建议") }) }
+    ) { contentPadding ->
+        val errorMessage = uiState.errorMessage
+        val advice = uiState.advice
+        when {
+            uiState.isLoading -> LoadingAdvice(
+                innerPadding = contentPadding,
+                message = uiState.loadingMessage,
+                progress = uiState.progress,
+                remainingSeconds = uiState.remainingSeconds
+            )
+
+            uiState.isDashboardLoading -> DashboardLoading(contentPadding)
+            errorMessage != null -> ErrorAdvice(contentPadding, errorMessage, uiState.dashboardData, viewModel::refresh)
+            advice != null -> AiAdviceContent(contentPadding, advice, uiState.dashboardData, uiState.isLoading, viewModel::refresh)
+            else -> AiAdviceLanding(contentPadding, uiState.dashboardData, viewModel::refresh)
         }
+    }
+}
+
+@Composable
+private fun DashboardLoading(innerPadding: PaddingValues) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        CircularProgressIndicator()
+        Text(
+            text = "正在读取本地训练统计",
+            modifier = Modifier.padding(top = 18.dp),
+            style = MaterialTheme.typography.titleMedium
+        )
+    }
 }
 
 @Composable
@@ -119,6 +136,26 @@ private fun LoadingAdvice(
 }
 
 @Composable
+private fun AiAdviceLanding(
+    innerPadding: PaddingValues,
+    dashboardData: AiDashboardData?,
+    onGetAdvice: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        dashboardData?.let {
+            item { AiDashboardCard(it) }
+        }
+        item { GetAiAdviceButton(isLoading = false, onClick = onGetAdvice) }
+    }
+}
+
+@Composable
 private fun ErrorAdvice(
     innerPadding: PaddingValues,
     message: String,
@@ -128,8 +165,8 @@ private fun ErrorAdvice(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(innerPadding)
-            .padding(16.dp),
+            .padding(innerPadding),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         dashboardData?.let {
@@ -137,12 +174,12 @@ private fun ErrorAdvice(
             item { GetAiAdviceButton(isLoading = false, onClick = onRetry) }
         }
         item {
-            Text("生成失败", style = MaterialTheme.typography.titleLarge)
-            Text(
-                text = message,
-                modifier = Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("生成失败", style = MaterialTheme.typography.titleMedium)
+                    Text(message, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         }
     }
 }
@@ -257,4 +294,3 @@ private fun ListAdviceCard(
         }
     }
 }
-

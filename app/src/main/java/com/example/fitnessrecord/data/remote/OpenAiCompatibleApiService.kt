@@ -6,6 +6,7 @@ import com.example.fitnessrecord.model.AiAdviceResult
 import com.example.fitnessrecord.model.AiProviderConfig
 import com.example.fitnessrecord.model.AiTokenUsage
 import com.example.fitnessrecord.model.NextWeekSuggestion
+import com.example.fitnessrecord.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -37,7 +38,10 @@ class OpenAiCompatibleApiService(
         )
         val content = response.firstContent().stripJsonFence()
         val advice = runCatching { json.decodeFromString<AiAdviceResponse>(content).toModel() }
-            .getOrElse { error -> throw IOException("大模型返回 JSON 解析失败：${error.message}") }
+            .getOrElse { error ->
+                AppLogger.e("AiApi", "AI advice JSON parse failed. Content=${content.take(500)}", error)
+                throw IOException("大模型返回 JSON 解析失败：${error.message}", error)
+            }
 
         AiAdviceResult(advice = advice, tokenUsage = response.usage?.toModel())
     }
@@ -70,16 +74,19 @@ class OpenAiCompatibleApiService(
     private fun executeChatCompletion(payload: ChatCompletionRequest): ChatCompletionResponse {
         val requestBody = json.encodeToString(payload).toRequestBody(jsonMediaType)
         val primaryUrl = config.baseUrl.toChatCompletionsUrl()
+        AppLogger.i("AiApi", "Requesting chat completion. url=$primaryUrl, model=${config.model}")
         return runCatching {
             executeChatCompletionRequest(primaryUrl, requestBody)
         }.recoverCatching { error ->
             val fallbackUrl = primaryUrl.httpsToHttpFallback()
             if (error.isTlsProtocolMismatch() && fallbackUrl != null) {
+                AppLogger.i("AiApi", "TLS mismatch detected. Retrying with fallback url=$fallbackUrl")
                 executeChatCompletionRequest(fallbackUrl, requestBody)
             } else {
                 throw error.toUserFriendlyNetworkError(config.baseUrl)
             }
         }.getOrElse { error ->
+            AppLogger.e("AiApi", "Chat completion request failed. baseUrl=${config.baseUrl}, model=${config.model}", error)
             throw error.toUserFriendlyNetworkError(config.baseUrl)
         }
     }
@@ -98,9 +105,15 @@ class OpenAiCompatibleApiService(
         client.newCall(httpRequest).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
+                AppLogger.e("AiApi", "Chat completion failed. HTTP ${response.code}. Body=${body.take(300)}")
                 throw IOException("大模型请求失败：HTTP ${response.code} ${body.take(180)}")
             }
-            return json.decodeFromString(body)
+            AppLogger.i("AiApi", "Chat completion succeeded. HTTP ${response.code}. BodyLength=${body.length}")
+            return runCatching { json.decodeFromString<ChatCompletionResponse>(body) }
+                .getOrElse { error ->
+                    AppLogger.e("AiApi", "Chat completion response parse failed. Body=${body.take(500)}", error)
+                    throw error
+                }
         }
     }
 
@@ -330,4 +343,3 @@ private data class NextWeekSuggestionResponse(
         suggestion = suggestion.ifBlank { "根据身体状态安排低到中等强度训练。" }
     )
 }
-

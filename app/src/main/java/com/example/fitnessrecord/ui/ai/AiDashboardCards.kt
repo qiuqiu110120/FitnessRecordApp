@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.ui.ai
+﻿package com.example.fitnessrecord.ui.ai
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background

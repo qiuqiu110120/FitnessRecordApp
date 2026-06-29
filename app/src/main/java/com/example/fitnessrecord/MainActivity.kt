@@ -15,14 +15,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,6 +44,7 @@ import com.example.fitnessrecord.ui.settings.AppSettingsViewModel
 import com.example.fitnessrecord.ui.settings.SettingsRoute
 import com.example.fitnessrecord.ui.settings.UpdateCheckState
 import com.example.fitnessrecord.ui.theme.FitnessRecordTheme
+import com.example.fitnessrecord.util.AppLogger
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
 
@@ -95,6 +96,8 @@ private fun FitnessRecordApp(
     val aiAdviceViewModel: AiAdviceViewModel = viewModel(factory = appContainer.aiAdviceViewModelFactory)
     val aiSettingsViewModel: AiSettingsViewModel = viewModel(factory = appContainer.aiSettingsViewModelFactory)
     val scope = rememberCoroutineScope()
+    var runtimeLogText by remember { mutableStateOf("正在读取日志...") }
+
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -106,9 +109,31 @@ private fun FitnessRecordApp(
                     output.write(json.toByteArray(StandardCharsets.UTF_8))
                 }
             }.onSuccess {
+                AppLogger.i("Export", "Workout data exported")
                 Toast.makeText(context, "健身数据已导出", Toast.LENGTH_SHORT).show()
             }.onFailure { error ->
+                AppLogger.e("Export", "Workout data export failed", error)
                 Toast.makeText(context, error.message ?: "导出失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val logExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val logText = AppLogger.read()
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(logText.toByteArray(StandardCharsets.UTF_8))
+                }
+                AppLogger.i("Export", "Runtime log exported")
+            }.onSuccess {
+                Toast.makeText(context, "运行日志已导出", Toast.LENGTH_SHORT).show()
+            }.onFailure { error ->
+                AppLogger.e("Export", "Runtime log export failed", error)
+                Toast.makeText(context, error.message ?: "导出日志失败", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -192,9 +217,21 @@ private fun FitnessRecordApp(
                     isTestingConnection = settingsState.isTestingConnection,
                     testMessage = settingsState.testMessage,
                     tokenUsage = aiState.tokenUsage,
+                    runtimeLogText = runtimeLogText,
                     onThemeColorChange = aiSettingsViewModel::saveThemeColor,
                     onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
                     onExportData = { exportLauncher.launch("fra-workout-export.json") },
+                    onRefreshLogs = {
+                        scope.launch { runtimeLogText = AppLogger.read() }
+                    },
+                    onClearLogs = {
+                        scope.launch {
+                            AppLogger.clear()
+                            runtimeLogText = AppLogger.read()
+                            Toast.makeText(context, "运行日志已清空", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onExportLogs = { logExportLauncher.launch("fra-runtime-log.txt") },
                     onProviderChange = aiSettingsViewModel::updateProvider,
                     onBaseUrlChange = aiSettingsViewModel::updateBaseUrl,
                     onApiKeyChange = aiSettingsViewModel::updateApiKey,
@@ -209,6 +246,3 @@ private fun FitnessRecordApp(
 }
 
 private const val BACK_EXIT_INTERVAL_MS = 2_000L
-
-
-

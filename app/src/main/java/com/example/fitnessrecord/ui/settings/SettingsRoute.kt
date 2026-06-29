@@ -19,10 +19,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Article
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -43,14 +45,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.AppVersion
@@ -73,6 +77,7 @@ private enum class SettingsSection(val title: String) {
     Theme("主题配色"),
     AiModel("大模型配置"),
     Export("数据导出"),
+    Logs("运行日志"),
     Version("版本信息"),
 }
 
@@ -87,9 +92,13 @@ fun SettingsRoute(
     isTestingConnection: Boolean,
     testMessage: AiConnectionTestMessage?,
     tokenUsage: AiTokenUsage?,
+    runtimeLogText: String,
     onThemeColorChange: (String) -> Unit,
     onCheckUpdates: () -> Unit,
     onExportData: () -> Unit,
+    onRefreshLogs: () -> Unit,
+    onClearLogs: () -> Unit,
+    onExportLogs: () -> Unit,
     onProviderChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
@@ -128,6 +137,7 @@ fun SettingsRoute(
                 onOpenTheme = { section = SettingsSection.Theme },
                 onOpenAiModel = { section = SettingsSection.AiModel },
                 onOpenExport = { section = SettingsSection.Export },
+                onOpenLogs = { section = SettingsSection.Logs },
                 onOpenVersion = { section = SettingsSection.Version }
             )
 
@@ -157,6 +167,14 @@ fun SettingsRoute(
                 onExportData = onExportData
             )
 
+            SettingsSection.Logs -> RuntimeLogScreen(
+                innerPadding = contentPadding,
+                logText = runtimeLogText,
+                onRefreshLogs = onRefreshLogs,
+                onClearLogs = onClearLogs,
+                onExportLogs = onExportLogs
+            )
+
             SettingsSection.Version -> VersionInfoScreen(
                 innerPadding = contentPadding,
                 updateCheckState = updateCheckState,
@@ -176,6 +194,7 @@ private fun SettingsHomeScreen(
     onOpenTheme: () -> Unit,
     onOpenAiModel: () -> Unit,
     onOpenExport: () -> Unit,
+    onOpenLogs: () -> Unit,
     onOpenVersion: () -> Unit,
 ) {
     val themeName = ThemeColorOptions.firstOrNull { it.key == themeColorKey }?.label ?: themeColorKey
@@ -208,6 +227,14 @@ private fun SettingsHomeScreen(
                 subtitle = "导出训练记录 JSON 文件",
                 icon = Icons.Outlined.FileDownload,
                 onClick = onOpenExport
+            )
+        }
+        item {
+            SettingsEntryCard(
+                title = "运行日志",
+                subtitle = "查看、导出或清空错误信息",
+                icon = Icons.Outlined.Article,
+                onClick = onOpenLogs
             )
         }
         item {
@@ -308,6 +335,85 @@ private fun ExportDataScreen(
                         Text("导出 JSON")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuntimeLogScreen(
+    innerPadding: PaddingValues,
+    logText: String,
+    onRefreshLogs: () -> Unit,
+    onClearLogs: () -> Unit,
+    onExportLogs: () -> Unit,
+) {
+    LaunchedEffect(Unit) {
+        onRefreshLogs()
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("运行日志", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "这里保存 App 启动、AI 请求、导出等关键运行信息。导出后可以把 txt 文件发给我定位问题。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = onRefreshLogs
+                        ) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("刷新")
+                        }
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = onClearLogs
+                        ) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("清空")
+                        }
+                    }
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onExportLogs
+                    ) {
+                        Icon(Icons.Outlined.FileDownload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("导出日志 TXT")
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Text(
+                    text = logText,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
     }
@@ -436,7 +542,7 @@ private fun ThemeSettingsCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Spacer(
@@ -660,4 +766,3 @@ private fun versionEntrySubtitle(state: UpdateCheckState): String = when (state)
     is UpdateCheckState.Failed -> "检查更新失败"
     UpdateCheckState.Idle -> "当前版本 ${AppVersion.NAME}"
 }
-
