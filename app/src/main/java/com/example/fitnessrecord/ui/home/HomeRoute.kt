@@ -27,7 +27,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,16 +46,10 @@ import java.util.Locale
 fun HomeRoute(
     innerPadding: PaddingValues,
     viewModel: HomeViewModel,
-    resetKey: Int,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val editorDraft = uiState.editorDraft
     var showActionSettings by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(resetKey) {
-        showActionSettings = false
-        viewModel.closeEditor()
-    }
 
     when {
         showActionSettings -> {
@@ -256,3 +249,4 @@ private fun SelectedDateCard(
 
 private val detailDateFormatter = DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE", Locale.CHINA)
 private val editorTitleFormatter = DateTimeFormatter.ofPattern("M 月 d 日训练", Locale.CHINA)
+

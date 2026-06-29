@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -87,9 +88,7 @@ private fun FitnessRecordApp(
     appSettingsViewModel: AppSettingsViewModel,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
-    var homeResetKey by rememberSaveable { mutableStateOf(0) }
-    var aiResetKey by rememberSaveable { mutableStateOf(0) }
-    var settingsResetKey by rememberSaveable { mutableStateOf(0) }
+    val tabStateHolder = rememberSaveableStateHolder()
     val context = LocalContext.current
     val activity = context as? Activity
     var lastBackPressedAt by remember { mutableStateOf(0L) }
@@ -189,16 +188,7 @@ private fun FitnessRecordApp(
                 AppTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
-                        onClick = {
-                            if (selectedTab != tab) {
-                                selectedTab = tab
-                                when (tab) {
-                                    AppTab.Home -> homeResetKey++
-                                    AppTab.AiAdvice -> aiResetKey++
-                                    AppTab.Settings -> settingsResetKey++
-                                }
-                            }
-                        },
+                        onClick = { selectedTab = tab },
                         icon = { Icon(imageVector = tab.icon, contentDescription = null) },
                         label = { Text(text = tab.label) }
                     )
@@ -206,62 +196,62 @@ private fun FitnessRecordApp(
             }
         }
     ) { innerPadding ->
-        when (selectedTab) {
-            AppTab.Home -> HomeRoute(
-                innerPadding = innerPadding,
-                viewModel = homeViewModel,
-                resetKey = homeResetKey
-            )
-
-            AppTab.AiAdvice -> AiAdviceRoute(
-                innerPadding = innerPadding,
-                viewModel = aiAdviceViewModel,
-                resetKey = aiResetKey
-            )
-
-            AppTab.Settings -> {
-                val aiState by aiAdviceViewModel.uiState.collectAsState()
-                val settingsState by aiSettingsViewModel.uiState.collectAsState()
-                SettingsRoute(
+        tabStateHolder.SaveableStateProvider(selectedTab) {
+            when (selectedTab) {
+                AppTab.Home -> HomeRoute(
                     innerPadding = innerPadding,
-                    themeColorKey = settingsState.themeColorKey,
-                    updateCheckState = appSettingsState.updateCheckState,
-                    availableUpdate = appSettingsState.availableUpdate,
-                    config = settingsState.draft,
-                    isTestingConnection = settingsState.isTestingConnection,
-                    testMessage = settingsState.testMessage,
-                    tokenUsage = aiState.tokenUsage,
-                    hasUnsavedAiConfig = settingsState.hasUnsavedChanges,
-                    resetKey = settingsResetKey,
-                    runtimeLogText = runtimeLogText,
-                    onThemeColorChange = aiSettingsViewModel::saveThemeColor,
-                    onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
-                    onExportData = { exportLauncher.launch("fra-workout-export.json") },
-                    onRefreshLogs = {
-                        scope.launch { runtimeLogText = AppLogger.read() }
-                    },
-                    onClearLogs = {
-                        scope.launch {
-                            AppLogger.clear()
-                            runtimeLogText = AppLogger.read()
-                            Toast.makeText(context, "运行日志已清空", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onExportLogs = { logExportLauncher.launch("fra-runtime-log.txt") },
-                    onProviderChange = aiSettingsViewModel::updateProvider,
-                    onBaseUrlChange = aiSettingsViewModel::updateBaseUrl,
-                    onApiKeyChange = aiSettingsViewModel::updateApiKey,
-                    onModelChange = aiSettingsViewModel::updateModel,
-                    onTestConnection = aiSettingsViewModel::testConnection,
-                    onSave = aiSettingsViewModel::save,
-                    onClear = aiSettingsViewModel::clear
+                    viewModel = homeViewModel
                 )
+
+                AppTab.AiAdvice -> AiAdviceRoute(
+                    innerPadding = innerPadding,
+                    viewModel = aiAdviceViewModel
+                )
+
+                AppTab.Settings -> {
+                    val aiState by aiAdviceViewModel.uiState.collectAsState()
+                    val settingsState by aiSettingsViewModel.uiState.collectAsState()
+                    SettingsRoute(
+                        innerPadding = innerPadding,
+                        themeColorKey = settingsState.themeColorKey,
+                        updateCheckState = appSettingsState.updateCheckState,
+                        availableUpdate = appSettingsState.availableUpdate,
+                        config = settingsState.draft,
+                        isTestingConnection = settingsState.isTestingConnection,
+                        testMessage = settingsState.testMessage,
+                        tokenUsage = aiState.tokenUsage,
+                        hasUnsavedAiConfig = settingsState.hasUnsavedChanges,
+                        runtimeLogText = runtimeLogText,
+                        onThemeColorChange = aiSettingsViewModel::saveThemeColor,
+                        onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
+                        onExportData = { exportLauncher.launch("fra-workout-export.json") },
+                        onRefreshLogs = {
+                            scope.launch { runtimeLogText = AppLogger.read() }
+                        },
+                        onClearLogs = {
+                            scope.launch {
+                                AppLogger.clear()
+                                runtimeLogText = AppLogger.read()
+                                Toast.makeText(context, "运行日志已清空", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onExportLogs = { logExportLauncher.launch("fra-runtime-log.txt") },
+                        onProviderChange = aiSettingsViewModel::updateProvider,
+                        onBaseUrlChange = aiSettingsViewModel::updateBaseUrl,
+                        onApiKeyChange = aiSettingsViewModel::updateApiKey,
+                        onModelChange = aiSettingsViewModel::updateModel,
+                        onTestConnection = aiSettingsViewModel::testConnection,
+                        onSave = aiSettingsViewModel::save,
+                        onClear = aiSettingsViewModel::clear
+                    )
+                }
             }
         }
     }
 }
-
 private const val BACK_EXIT_INTERVAL_MS = 2_000L
+
+
 
 
 

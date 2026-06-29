@@ -93,7 +93,6 @@ fun SettingsRoute(
     tokenUsage: AiTokenUsage?,
     runtimeLogText: String,
     hasUnsavedAiConfig: Boolean,
-    resetKey: Int,
     onThemeColorChange: (String) -> Unit,
     onCheckUpdates: () -> Unit,
     onExportData: () -> Unit,
@@ -109,10 +108,6 @@ fun SettingsRoute(
     onClear: () -> Unit,
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Home) }
-
-    LaunchedEffect(resetKey) {
-        section = SettingsSection.Home
-    }
 
     if (section != SettingsSection.Home) {
         BackHandler { section = SettingsSection.Home }
@@ -775,6 +770,7 @@ private fun versionEntrySubtitle(state: UpdateCheckState): String = when (state)
     is UpdateCheckState.Failed -> "检查更新失败"
     UpdateCheckState.Idle -> "当前版本 ${AppVersion.NAME}"
 }
+
 
 
 

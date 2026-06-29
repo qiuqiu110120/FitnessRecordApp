@@ -49,12 +49,14 @@ data class AiDashboardData(
 )
 
 @Immutable
+@Serializable
 data class AiAdviceResult(
     val advice: AiAdvice,
     val tokenUsage: AiTokenUsage? = null,
 )
 
 @Immutable
+@Serializable
 data class AiTokenUsage(
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
@@ -62,6 +64,7 @@ data class AiTokenUsage(
 )
 
 @Immutable
+@Serializable
 data class AiAdvice(
     val summary: String,
     val frequencyAnalysis: String,
@@ -72,6 +75,7 @@ data class AiAdvice(
 )
 
 @Immutable
+@Serializable
 data class NextWeekSuggestion(
     val day: String,
     val suggestion: String,
@@ -117,5 +121,6 @@ data class AiProviderConfig(
     val apiKey: String = "",
     val model: String = "",
 )
+
 
 
