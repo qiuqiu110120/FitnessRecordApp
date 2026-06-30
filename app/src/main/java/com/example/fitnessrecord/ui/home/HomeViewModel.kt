@@ -3,8 +3,13 @@ package com.example.fitnessrecord.ui.home
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitnessrecord.data.repository.ActionFolderSaveResult
+import com.example.fitnessrecord.data.repository.CustomActionSaveResult
+import com.example.fitnessrecord.data.repository.DeleteFolderResult
 import com.example.fitnessrecord.data.repository.WorkoutRepository
 import com.example.fitnessrecord.model.CustomAction
+import com.example.fitnessrecord.model.CustomActionFolder
+import com.example.fitnessrecord.model.DEFAULT_CUSTOM_ACTION_FOLDER_ID
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
@@ -38,13 +43,23 @@ class HomeViewModel(
     private val calendarMode = MutableStateFlow(CalendarMode.Month)
     private val editingDate = MutableStateFlow<LocalDate?>(null)
     private val editorDraft = MutableStateFlow<WorkoutDay?>(null)
+    private val selectedActionFolderId = MutableStateFlow<Long?>(null)
     private val customActionDraft = MutableStateFlow("")
+    private val customActionFolderDraft = MutableStateFlow("")
+    private val actionLibraryMessage = MutableStateFlow<String?>(null)
 
     private val selectedWorkoutDay = selectedDate
         .flatMapLatest { date -> workoutRepository.observeWorkoutDay(date) }
         .distinctUntilChanged()
 
     private val recordDates = workoutRepository.observeRecordDates()
+        .distinctUntilChanged()
+
+    private val customActionFolders = workoutRepository.observeCustomActionFolders()
+        .distinctUntilChanged()
+
+    private val selectedCustomActions = selectedActionFolderId
+        .flatMapLatest { folderId -> workoutRepository.observeCustomActions(folderId) }
         .distinctUntilChanged()
 
     private val dateState = combine(
@@ -62,11 +77,43 @@ class HomeViewModel(
         HomeEditorState(editingDate = editingDate, editorDraft = editorDraft)
     }.distinctUntilChanged()
 
+    private val customActionContentState = combine(
+        customActionFolders,
+        selectedCustomActions,
+        selectedActionFolderId
+    ) { folders, customActions, selectedFolderId ->
+        val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
+        HomeCustomActionContentState(
+            customActionFolders = folders,
+            selectedActionFolderId = if (selectedFolderId == null) null else selectedFolder?.id,
+            customActions = customActions
+        )
+    }.distinctUntilChanged()
+
+    private val customActionDraftState = combine(
+        customActionDraft,
+        customActionFolderDraft,
+        actionLibraryMessage
+    ) { customActionDraft, folderDraft, message ->
+        HomeCustomActionDraftState(
+            customActionDraft = customActionDraft,
+            customActionFolderDraft = folderDraft,
+            actionLibraryMessage = message
+        )
+    }.distinctUntilChanged()
+
     private val customActionState = combine(
-        workoutRepository.observeCustomActions().distinctUntilChanged(),
-        customActionDraft
-    ) { customActions, customActionDraft ->
-        HomeCustomActionState(customActions = customActions, customActionDraft = customActionDraft)
+        customActionContentState,
+        customActionDraftState
+    ) { content, draft ->
+        HomeCustomActionState(
+            customActionFolders = content.customActionFolders,
+            selectedActionFolderId = content.selectedActionFolderId,
+            customActions = content.customActions,
+            customActionDraft = draft.customActionDraft,
+            customActionFolderDraft = draft.customActionFolderDraft,
+            actionLibraryMessage = draft.actionLibraryMessage
+        )
     }.distinctUntilChanged()
 
     private val contentState = combine(
@@ -95,8 +142,12 @@ class HomeViewModel(
             editorDraft = contentState.editorState.editorDraft,
             recordDates = contentState.recordDates,
             selectedWorkoutDay = contentState.selectedWorkoutDay,
+            customActionFolders = customActionState.customActionFolders,
+            selectedActionFolderId = customActionState.selectedActionFolderId,
             customActions = customActionState.customActions,
-            customActionDraft = customActionState.customActionDraft
+            customActionDraft = customActionState.customActionDraft,
+            customActionFolderDraft = customActionState.customActionFolderDraft,
+            actionLibraryMessage = customActionState.actionLibraryMessage
         )
     }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
@@ -153,6 +204,23 @@ class HomeViewModel(
     fun addActionFromTemplate(actionName: String) {
         updateDraft { day ->
             day.copy(actions = day.actions + WorkoutAction(id = newLocalId(), name = actionName, sets = listOf(WorkoutSet(id = newLocalId()))))
+        }
+    }
+
+    fun createActionAndAddToDraft() {
+        val name = customActionDraft.value.trim()
+        if (name.isBlank()) return
+        val folderId = selectedActionFolderId.value ?: DEFAULT_CUSTOM_ACTION_FOLDER_ID
+        viewModelScope.launch {
+            when (val result = workoutRepository.saveCustomAction(CustomAction(folderId = folderId, name = name))) {
+                CustomActionSaveResult.BlankName -> actionLibraryMessage.value = "动作名称不能为空"
+                CustomActionSaveResult.DuplicateName -> actionLibraryMessage.value = "当前文件夹已有同名动作"
+                is CustomActionSaveResult.Saved -> {
+                    customActionDraft.value = ""
+                    actionLibraryMessage.value = null
+                    addActionFromTemplate(result.action.name)
+                }
+            }
         }
     }
 
@@ -224,6 +292,13 @@ class HomeViewModel(
         }
     }
 
+    fun selectActionFolder(folderId: Long?) {
+        if (selectedActionFolderId.value != folderId) {
+            selectedActionFolderId.value = folderId
+            actionLibraryMessage.value = null
+        }
+    }
+
     fun updateCustomActionDraft(name: String) {
         if (customActionDraft.value != name) {
             customActionDraft.value = name
@@ -233,9 +308,16 @@ class HomeViewModel(
     fun saveCustomAction() {
         val name = customActionDraft.value.trim()
         if (name.isBlank()) return
+        val folderId = selectedActionFolderId.value ?: DEFAULT_CUSTOM_ACTION_FOLDER_ID
         viewModelScope.launch {
-            workoutRepository.saveCustomAction(CustomAction(name = name))
-            customActionDraft.value = ""
+            when (workoutRepository.saveCustomAction(CustomAction(folderId = folderId, name = name))) {
+                CustomActionSaveResult.BlankName -> actionLibraryMessage.value = "动作名称不能为空"
+                CustomActionSaveResult.DuplicateName -> actionLibraryMessage.value = "当前文件夹已有同名动作"
+                is CustomActionSaveResult.Saved -> {
+                    customActionDraft.value = ""
+                    actionLibraryMessage.value = null
+                }
+            }
         }
     }
 
@@ -243,6 +325,49 @@ class HomeViewModel(
         viewModelScope.launch {
             workoutRepository.deleteCustomAction(id)
         }
+    }
+
+    fun updateCustomActionFolderDraft(name: String) {
+        if (customActionFolderDraft.value != name) {
+            customActionFolderDraft.value = name
+        }
+    }
+
+    fun saveCustomActionFolder() {
+        val name = customActionFolderDraft.value.trim()
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            when (val result = workoutRepository.createCustomActionFolder(name)) {
+                ActionFolderSaveResult.BlankName -> actionLibraryMessage.value = "文件夹名称不能为空"
+                ActionFolderSaveResult.DuplicateName -> actionLibraryMessage.value = "已有同名文件夹"
+                is ActionFolderSaveResult.Saved -> {
+                    customActionFolderDraft.value = ""
+                    selectedActionFolderId.value = result.folder.id
+                    actionLibraryMessage.value = null
+                }
+            }
+        }
+    }
+
+    fun deleteCustomActionFolder(id: Long) {
+        viewModelScope.launch {
+            when (workoutRepository.deleteCustomActionFolder(id)) {
+                DeleteFolderResult.Deleted -> {
+                    selectedActionFolderId.value = DEFAULT_CUSTOM_ACTION_FOLDER_ID
+                    actionLibraryMessage.value = null
+                }
+                DeleteFolderResult.DefaultFolder -> actionLibraryMessage.value = "默认文件夹不能删除"
+                DeleteFolderResult.NotEmpty -> actionLibraryMessage.value = "只能删除空文件夹"
+                DeleteFolderResult.NotFound -> {
+                    selectedActionFolderId.value = DEFAULT_CUSTOM_ACTION_FOLDER_ID
+                    actionLibraryMessage.value = "文件夹不存在"
+                }
+            }
+        }
+    }
+
+    fun clearActionLibraryMessage() {
+        actionLibraryMessage.value = null
     }
 
     suspend fun exportWorkoutDataJson(): String = withContext(Dispatchers.Default) {
@@ -323,8 +448,26 @@ private data class HomeContentState(
 
 @Immutable
 private data class HomeCustomActionState(
+    val customActionFolders: List<CustomActionFolder>,
+    val selectedActionFolderId: Long?,
     val customActions: List<CustomAction>,
     val customActionDraft: String,
+    val customActionFolderDraft: String,
+    val actionLibraryMessage: String?,
+)
+
+@Immutable
+private data class HomeCustomActionContentState(
+    val customActionFolders: List<CustomActionFolder>,
+    val selectedActionFolderId: Long?,
+    val customActions: List<CustomAction>,
+)
+
+@Immutable
+private data class HomeCustomActionDraftState(
+    val customActionDraft: String,
+    val customActionFolderDraft: String,
+    val actionLibraryMessage: String?,
 )
 
 @Immutable
@@ -336,6 +479,10 @@ data class HomeUiState(
     val editorDraft: WorkoutDay? = null,
     val recordDates: Set<LocalDate> = emptySet(),
     val selectedWorkoutDay: WorkoutDay = WorkoutDay(LocalDate.now()),
+    val customActionFolders: List<CustomActionFolder> = emptyList(),
+    val selectedActionFolderId: Long? = null,
     val customActions: List<CustomAction> = emptyList(),
     val customActionDraft: String = "",
+    val customActionFolderDraft: String = "",
+    val actionLibraryMessage: String? = null,
 )

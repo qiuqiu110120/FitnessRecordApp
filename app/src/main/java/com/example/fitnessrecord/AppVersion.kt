@@ -1,8 +1,8 @@
 ﻿package com.example.fitnessrecord
 
 object AppVersion {
-    const val NAME = "0.1.20"
-    const val CODE = 21
+    const val NAME = "0.1.21"
+    const val CODE = 22
 }
 
 

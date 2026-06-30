@@ -5,17 +5,14 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
-    tableName = "custom_actions",
-    indices = [
-        Index("folderId"),
-        Index(value = ["folderId", "normalizedName"])
-    ]
+    tableName = "custom_action_folders",
+    indices = [Index(value = ["normalizedName"], unique = true)]
 )
-data class CustomActionEntity(
+data class CustomActionFolderEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val folderId: Long,
     val name: String,
     val normalizedName: String,
+    val isDefault: Boolean = false,
     val sortOrder: Int,
     val updatedAt: Long,
 )

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.fitnessrecord.data.local.FitnessDatabase
 import com.example.fitnessrecord.data.repository.DefaultAiAdviceRepository
 import com.example.fitnessrecord.data.repository.DefaultWorkoutRepository
@@ -24,7 +26,23 @@ class AppContainer(context: Context) {
         context.applicationContext,
         FitnessDatabase::class.java,
         "fitness_record.db"
-    ).fallbackToDestructiveMigration().build()
+    ).addMigrations(
+        FitnessDatabase.MIGRATION_1_4,
+        FitnessDatabase.MIGRATION_2_4,
+        FitnessDatabase.MIGRATION_3_4
+    )
+        .addCallback(object : RoomDatabase.Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO custom_action_folders (
+                        id, name, normalizedName, isDefault, sortOrder, updatedAt
+                    ) VALUES (1, '默认', '默认', 1, 0, ${System.currentTimeMillis()})
+                    """.trimIndent()
+                )
+            }
+        })
+        .build()
 
     private val workoutRepository: WorkoutRepository = DefaultWorkoutRepository(database.workoutDao())
     private val settingsRepository: SettingsRepository = DataStoreSettingsRepository(context)

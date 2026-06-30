@@ -4,6 +4,9 @@ import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 
+const val DEFAULT_CUSTOM_ACTION_FOLDER_ID: Long = 1L
+const val DEFAULT_CUSTOM_ACTION_FOLDER_NAME: String = "默认"
+
 @Immutable
 data class WorkoutDay(
     val date: LocalDate,
@@ -111,7 +114,17 @@ data class AiWorkoutSet(
 @Immutable
 data class CustomAction(
     val id: Long = 0,
+    val folderId: Long = DEFAULT_CUSTOM_ACTION_FOLDER_ID,
     val name: String,
+    val sortOrder: Int = 0,
+)
+
+@Immutable
+data class CustomActionFolder(
+    val id: Long = 0,
+    val name: String,
+    val isDefault: Boolean = false,
+    val sortOrder: Int = 0,
 )
 
 @Immutable

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -25,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -50,6 +52,7 @@ fun HomeRoute(
     val uiState by viewModel.uiState.collectAsState()
     val editorDraft = uiState.editorDraft
     var showActionSettings by rememberSaveable { mutableStateOf(false) }
+    var showDeleteDayConfirm by rememberSaveable { mutableStateOf(false) }
 
     when {
         showActionSettings -> {
@@ -69,11 +72,20 @@ fun HomeRoute(
             ) { settingsPadding ->
                 CustomActionSettingsScreen(
                     innerPadding = settingsPadding,
+                    folders = uiState.customActionFolders,
+                    selectedFolderId = uiState.selectedActionFolderId,
                     actions = uiState.customActions,
-                    draftName = uiState.customActionDraft,
-                    onDraftNameChange = viewModel::updateCustomActionDraft,
-                    onSave = viewModel::saveCustomAction,
-                    onDelete = viewModel::deleteCustomAction
+                    actionDraftName = uiState.customActionDraft,
+                    folderDraftName = uiState.customActionFolderDraft,
+                    message = uiState.actionLibraryMessage,
+                    onSelectFolder = viewModel::selectActionFolder,
+                    onActionDraftNameChange = viewModel::updateCustomActionDraft,
+                    onFolderDraftNameChange = viewModel::updateCustomActionFolderDraft,
+                    onSaveAction = viewModel::saveCustomAction,
+                    onSaveFolder = viewModel::saveCustomActionFolder,
+                    onDeleteAction = viewModel::deleteCustomAction,
+                    onDeleteFolder = viewModel::deleteCustomActionFolder,
+                    onClearMessage = viewModel::clearActionLibraryMessage
                 )
             }
         }
@@ -91,7 +103,7 @@ fun HomeRoute(
                             }
                         },
                         actions = {
-                            IconButton(onClick = viewModel::deleteDraftDay) {
+                            IconButton(onClick = { showDeleteDayConfirm = true }) {
                                 Icon(Icons.Outlined.Delete, contentDescription = "删除当天记录")
                             }
                         }
@@ -101,18 +113,26 @@ fun HomeRoute(
                 WorkoutEditorScreen(
                     innerPadding = editorPadding,
                     day = editorDraft,
+                    folders = uiState.customActionFolders,
+                    selectedFolderId = uiState.selectedActionFolderId,
                     customActions = uiState.customActions,
+                    actionDraftName = uiState.customActionDraft,
+                    message = uiState.actionLibraryMessage,
+                    onSelectFolder = viewModel::selectActionFolder,
+                    onActionDraftNameChange = viewModel::updateCustomActionDraft,
                     onTrainingTypeChange = viewModel::updateTrainingType,
                     onDurationChange = viewModel::updateDurationMinutes,
                     onNotesChange = viewModel::updateNotes,
                     onAddAction = viewModel::addAction,
                     onAddCustomAction = viewModel::addActionFromTemplate,
+                    onCreateActionAndAdd = viewModel::createActionAndAddToDraft,
                     onActionNameChange = viewModel::updateActionName,
                     onDeleteAction = viewModel::deleteAction,
                     onAddSet = viewModel::addSet,
                     onSetChange = viewModel::updateSet,
                     onDeleteSet = viewModel::deleteSet,
-                    onSave = viewModel::saveDraft
+                    onSave = viewModel::saveDraft,
+                    onClearMessage = viewModel::clearActionLibraryMessage
                 )
             }
         }
@@ -129,6 +149,29 @@ fun HomeRoute(
                 onEditDate = { viewModel.startEditing(uiState.selectedWorkoutDay) }
             )
         }
+    }
+
+    if (showDeleteDayConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDayConfirm = false },
+            title = { Text("删除当天记录") },
+            text = { Text("确定删除这一天的训练记录吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDayConfirm = false
+                        viewModel.deleteDraftDay()
+                    }
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDayConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
