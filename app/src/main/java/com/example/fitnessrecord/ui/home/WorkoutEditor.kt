@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -20,15 +19,18 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,16 +53,13 @@ fun WorkoutEditorScreen(
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
     customActions: List<CustomAction>,
-    actionDraftName: String,
     message: String?,
     onSelectFolder: (Long?) -> Unit,
-    onActionDraftNameChange: (String) -> Unit,
     onTrainingTypeChange: (String) -> Unit,
     onDurationChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
     onAddAction: () -> Unit,
     onAddCustomAction: (String) -> Unit,
-    onCreateActionAndAdd: () -> Unit,
     onActionNameChange: (Long, String) -> Unit,
     onDeleteAction: (Long) -> Unit,
     onAddSet: (Long) -> Unit,
@@ -119,12 +118,9 @@ fun WorkoutEditorScreen(
                 folders = folders,
                 selectedFolderId = selectedFolderId,
                 customActions = customActions,
-                actionDraftName = actionDraftName,
                 onSelectFolder = onSelectFolder,
-                onActionDraftNameChange = onActionDraftNameChange,
                 onAddAction = onAddAction,
-                onAddCustomAction = onAddCustomAction,
-                onCreateActionAndAdd = onCreateActionAndAdd
+                onAddCustomAction = onAddCustomAction
             )
         }
 
@@ -215,20 +211,27 @@ private fun WorkoutActionTitle() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddActionsPanel(
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
     customActions: List<CustomAction>,
-    actionDraftName: String,
     onSelectFolder: (Long?) -> Unit,
-    onActionDraftNameChange: (String) -> Unit,
     onAddAction: () -> Unit,
     onAddCustomAction: (String) -> Unit,
-    onCreateActionAndAdd: () -> Unit,
 ) {
     val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
     val folderName = selectedFolder?.name ?: "全部"
+    var folderExpanded by rememberSaveable { mutableStateOf(false) }
+    var actionExpanded by rememberSaveable { mutableStateOf(false) }
+    var selectedActionName by rememberSaveable(selectedFolderId, customActions) { mutableStateOf(customActions.firstOrNull()?.name.orEmpty()) }
+    val selectedActionExists = customActions.any { it.name == selectedActionName }
+    LaunchedEffect(customActions, selectedActionExists, selectedActionName) {
+        if (!selectedActionExists) {
+            selectedActionName = customActions.firstOrNull()?.name.orEmpty()
+        }
+    }
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(
@@ -243,7 +246,7 @@ private fun AddActionsPanel(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("继续添加", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = "从 $folderName 中选择动作，或保存新动作后加入今天。",
+                        text = "从文件夹中选择动作加入今天，临时动作只保存到本次训练。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -255,20 +258,41 @@ private fun AddActionsPanel(
                 }
             }
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item(key = "all") {
-                    FilterChip(
-                        selected = selectedFolderId == null,
-                        onClick = { onSelectFolder(null) },
-                        label = { Text("全部") }
+            ExposedDropdownMenuBox(
+                expanded = folderExpanded,
+                onExpandedChange = { folderExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = folderName,
+                    onValueChange = {},
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    readOnly = true,
+                    label = { Text("文件夹") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = folderExpanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                )
+                ExposedDropdownMenu(
+                    expanded = folderExpanded,
+                    onDismissRequest = { folderExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("全部") },
+                        onClick = {
+                            onSelectFolder(null)
+                            folderExpanded = false
+                        }
                     )
-                }
-                items(folders, key = { it.id }) { folder ->
-                    FilterChip(
-                        selected = selectedFolderId == folder.id,
-                        onClick = { onSelectFolder(folder.id) },
-                        label = { Text(folder.name) }
-                    )
+                    folders.forEach { folder ->
+                        DropdownMenuItem(
+                            text = { Text(folder.name) },
+                            onClick = {
+                                onSelectFolder(folder.id)
+                                folderExpanded = false
+                            }
+                        )
+                    }
                 }
             }
 
@@ -277,16 +301,42 @@ private fun AddActionsPanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = actionDraftName,
-                    onValueChange = onActionDraftNameChange,
-                    modifier = Modifier.weight(1f),
-                    label = { Text("新动作") },
-                    singleLine = true
-                )
+                ExposedDropdownMenuBox(
+                    expanded = actionExpanded,
+                    onExpandedChange = { if (customActions.isNotEmpty()) actionExpanded = it },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = selectedActionName,
+                        onValueChange = {},
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth(),
+                        readOnly = true,
+                        enabled = customActions.isNotEmpty(),
+                        label = { Text("动作") },
+                        placeholder = { Text("当前文件夹没有动作") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = actionExpanded) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = actionExpanded,
+                        onDismissRequest = { actionExpanded = false }
+                    ) {
+                        customActions.forEach { action ->
+                            DropdownMenuItem(
+                                text = { Text(action.name) },
+                                onClick = {
+                                    selectedActionName = action.name
+                                    actionExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
                 Button(
-                    onClick = onCreateActionAndAdd,
-                    enabled = actionDraftName.isNotBlank()
+                    onClick = { onAddCustomAction(selectedActionName) },
+                    enabled = selectedActionName.isNotBlank()
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
@@ -294,21 +344,7 @@ private fun AddActionsPanel(
                 }
             }
 
-            if (customActions.isNotEmpty()) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(
-                        items = customActions,
-                        key = { it.id },
-                        contentType = { "shortcut" }
-                    ) { action ->
-                        OutlinedButton(onClick = { onAddCustomAction(action.name) }) {
-                            Icon(Icons.Outlined.Add, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(action.name)
-                        }
-                    }
-                }
-            } else {
+            if (customActions.isEmpty()) {
                 Text(
                     text = "当前筛选下还没有动作。",
                     style = MaterialTheme.typography.bodySmall,
@@ -330,7 +366,7 @@ private fun EmptyWorkoutCard() {
         ) {
             Text(text = "今天还没有记录", style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "向下滑到添加区，可以选择常用动作或创建新动作。",
+                text = "向下滑到添加区，可以选择常用动作或添加临时动作。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
