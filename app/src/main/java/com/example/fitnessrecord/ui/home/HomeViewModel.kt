@@ -36,6 +36,7 @@ import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -299,6 +300,7 @@ class HomeViewModel(
     }
 
     fun updateSet(actionId: Long, setId: Long, repsText: String, weightText: String) {
+        if (!weightText.isValidWeightInput()) return
         updateDraft { day ->
             day.copy(actions = day.actions.map { action ->
                 if (action.id == actionId) {
@@ -723,9 +725,13 @@ private fun WorkoutEditorDraft.toWorkoutDayOrError(): WorkoutDay? {
             return@mapNotNull null
         }
         val sets = action.sets.map { set ->
-            if (!set.reps.isPositiveIntOrBlank() || !set.weightKg.isPositiveDoubleOrBlank()) return null
+            if (!set.reps.isPositiveIntOrBlank()) return null
+            val weight = when (val parsedWeight = set.weightKg.parseWeightForSave()) {
+                WeightParseResult.Empty -> null
+                is WeightParseResult.Valid -> parsedWeight.value
+                is WeightParseResult.Invalid -> return null
+            }
             val reps = set.reps.trim().takeIf { it.isNotEmpty() }?.toInt()
-            val weight = set.weightKg.trim().takeIf { it.isNotEmpty() }?.toDouble()
             WorkoutSet(id = set.id, reps = reps, weightKg = weight)
         }
         WorkoutAction(id = action.id, name = trimmedName, sets = sets)
@@ -752,13 +758,30 @@ private fun String.isPositiveIntOrBlank(): Boolean {
     return value > 0
 }
 
-private fun String.isPositiveDoubleOrBlank(): Boolean {
+private val weightInputRegex = Regex("""^\d*\.?\d*$""")
+
+private fun String.isValidWeightInput(): Boolean = matches(weightInputRegex)
+
+private fun String.parseWeightForSave(): WeightParseResult {
     val text = trim()
-    if (text.isEmpty()) return true
-    if (text.endsWith(".")) return false
-    val value = text.toDoubleOrNull() ?: return false
-    return value > 0.0
+    if (text.isEmpty()) return WeightParseResult.Empty
+    if (!text.isValidWeightInput()) return WeightParseResult.Invalid(WeightInvalidReason.InvalidFormat)
+    val value = text.toDoubleOrNull() ?: return WeightParseResult.Invalid(WeightInvalidReason.InvalidFormat)
+    if (value.isNaN() || value.isInfinite()) return WeightParseResult.Invalid(WeightInvalidReason.InvalidFormat)
+    if (value <= 0.0) return WeightParseResult.Invalid(WeightInvalidReason.NotPositive)
+    return WeightParseResult.Valid(value)
+}
+
+private sealed interface WeightParseResult {
+    data object Empty : WeightParseResult
+    data class Valid(val value: Double) : WeightParseResult
+    data class Invalid(val reason: WeightInvalidReason) : WeightParseResult
+}
+
+private enum class WeightInvalidReason {
+    InvalidFormat,
+    NotPositive,
 }
 
 private fun Double.cleanNumber(): String =
-    if (this % 1.0 == 0.0) toInt().toString() else toString()
+    BigDecimal.valueOf(this).stripTrailingZeros().toPlainString()
