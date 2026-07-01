@@ -127,7 +127,7 @@ fun HomeRoute(
                     onAddCustomAction = viewModel::addActionFromTemplate,
                     onActionNameChange = viewModel::updateActionName,
                     onDeleteAction = viewModel::deleteAction,
-                    onAddSet = viewModel::addSet,
+                    onAddSets = viewModel::addSets,
                     onSetChange = viewModel::updateSet,
                     onDeleteSet = viewModel::deleteSet,
                     onSave = viewModel::saveDraft,

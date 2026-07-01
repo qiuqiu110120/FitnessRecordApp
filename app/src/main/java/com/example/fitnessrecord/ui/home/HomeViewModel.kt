@@ -299,11 +299,29 @@ class HomeViewModel(
     }
 
     fun addSet(actionId: Long) {
+        addSets(actionId, 1)
+    }
+
+    fun addSets(actionId: Long, count: Int) {
+        // UI only exposes 1..5; clamp here as a ViewModel safety guard.
+        val safeCount = count.coerceIn(1, 5)
+        var foundAction = false
         updateDraft { day ->
             day.copy(actions = day.actions.map { action ->
-                if (action.id == actionId) action.copy(sets = action.sets + WorkoutSetDraft(id = newLocalId())) else action
+                if (action.id == actionId) {
+                    foundAction = true
+                    val template = action.sets.lastOrNull()?.takeIf { it.hasCopyableContent() }
+                    val usedSetIds = action.sets.mapTo(mutableSetOf()) { it.id }
+                    val newSets = List(safeCount) {
+                        template.copyAsNewDraftWithId(newUniqueLocalSetId(usedSetIds))
+                    }
+                    action.copy(sets = action.sets + newSets)
+                } else {
+                    action
+                }
             })
         }
+        if (!foundAction) return
         requestSave(immediate = true)
     }
 
@@ -589,12 +607,26 @@ class HomeViewModel(
         }
     }
 
+    private fun newUniqueLocalSetId(usedIds: MutableSet<Long>): Long {
+        var id = newLocalId()
+        while (!usedIds.add(id)) {
+            id -= 1
+        }
+        return id
+    }
+
     private fun newLocalId(): Long = -System.nanoTime()
 }
 
 private val exportJson = Json {
     prettyPrint = true
 }
+
+private fun WorkoutSetDraft.hasCopyableContent(): Boolean =
+    reps.trim().isNotEmpty() || weightKg.trim().isNotEmpty()
+
+private fun WorkoutSetDraft?.copyAsNewDraftWithId(id: Long): WorkoutSetDraft =
+    this?.let { WorkoutSetDraft(id = id, reps = it.reps, weightKg = it.weightKg) } ?: WorkoutSetDraft(id = id)
 
 enum class CalendarMode(val label: String) {
     Month("月"),

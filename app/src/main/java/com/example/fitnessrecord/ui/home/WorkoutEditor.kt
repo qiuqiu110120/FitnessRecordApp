@@ -1,5 +1,6 @@
 package com.example.fitnessrecord.ui.home
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -23,6 +25,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,7 +35,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,13 +66,22 @@ fun WorkoutEditorScreen(
     onAddCustomAction: (String) -> Unit,
     onActionNameChange: (Long, String) -> Unit,
     onDeleteAction: (Long) -> Unit,
-    onAddSet: (Long) -> Unit,
+    onAddSets: (Long, Int) -> Unit,
     onSetChange: (Long, Long, String, String) -> Unit,
     onDeleteSet: (Long, Long) -> Unit,
     onSave: () -> Unit,
     onRetrySave: () -> Unit,
     onClearMessage: () -> Unit,
 ) {
+    val addSetCounts = remember { mutableStateMapOf<Long, Int>() }
+    val actionIds = day.actions.map { it.id }
+
+    LaunchedEffect(actionIds) {
+        val validActionIds = actionIds.toSet()
+        val obsoleteActionIds = addSetCounts.keys.filter { it !in validActionIds }
+        obsoleteActionIds.forEach { addSetCounts.remove(it) }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -112,10 +126,13 @@ fun WorkoutEditorScreen(
             key = { it.id },
             contentType = { "workout-action" }
         ) { action ->
+            val addSetCount = addSetCounts[action.id] ?: DefaultAddSetCount
             WorkoutActionCard(
                 action = action,
+                addSetCount = addSetCount,
+                onAddSetCountChange = { addSetCounts[action.id] = it },
                 onNameChange = { onActionNameChange(action.id, it) },
-                onAddSet = { onAddSet(action.id) },
+                onAddSets = { onAddSets(action.id, addSetCount) },
                 onSetChange = { set, reps, weight -> onSetChange(action.id, set.id, reps, weight) },
                 onDeleteSet = { set -> onDeleteSet(action.id, set.id) },
                 onDeleteAction = { onDeleteAction(action.id) }
@@ -455,8 +472,10 @@ private fun EmptyWorkoutCard() {
 @Composable
 private fun WorkoutActionCard(
     action: WorkoutActionDraft,
+    addSetCount: Int,
+    onAddSetCountChange: (Int) -> Unit,
     onNameChange: (String) -> Unit,
-    onAddSet: () -> Unit,
+    onAddSets: () -> Unit,
     onSetChange: (WorkoutSetDraft, String, String) -> Unit,
     onDeleteSet: (WorkoutSetDraft) -> Unit,
     onDeleteAction: () -> Unit,
@@ -522,10 +541,29 @@ private fun WorkoutActionCard(
                 }
             }
 
-            TextButton(onClick = onAddSet) {
-                Icon(Icons.Outlined.Add, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("添加一组")
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("添加组数", style = MaterialTheme.typography.labelMedium)
+                    AddSetCountOptions.forEach { count ->
+                        FilterChip(
+                            selected = addSetCount == count,
+                            onClick = { onAddSetCountChange(count) },
+                            label = { Text("${count}组") }
+                        )
+                    }
+                }
+
+                TextButton(onClick = onAddSets) {
+                    Icon(Icons.Outlined.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(addSetButtonText(addSetCount))
+                }
             }
         }
     }
@@ -553,3 +591,10 @@ private fun WorkoutActionCard(
         )
     }
 }
+
+private const val DefaultAddSetCount = 1
+
+private val AddSetCountOptions = 1..5
+
+private fun addSetButtonText(count: Int): String =
+    if (count == 1) "添加一组" else "添加 $count 组"
