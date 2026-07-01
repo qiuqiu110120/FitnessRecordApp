@@ -17,6 +17,7 @@ import com.example.fitnessrecord.model.QuickImportResult
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
+import com.example.fitnessrecord.model.hasMeaningfulContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -540,36 +541,41 @@ class HomeViewModel(
 
     private suspend fun saveCurrentWorkout(): Boolean {
         val draft = editorDraft.value ?: return true
-        val original = originalEditorDay.value
         val parsed = draft.toWorkoutDayOrError()
         if (parsed == null) {
             pendingExitAfterSave = false
             saveStatus.value = EditorSaveStatus.ValidationError
             return false
         }
-        val shouldCreate = original?.hasPersistedContent() == true || parsed.hasMeaningfulContent()
-        if (!shouldCreate) {
-            lastSavedDay = parsed
-            saveStatus.value = EditorSaveStatus.Saved
-            return true
-        }
-        if (lastSavedDay == parsed) {
-            saveStatus.value = EditorSaveStatus.Saved
+        val savingDate = parsed.date
+        val hasMeaningfulContent = parsed.hasMeaningfulContent()
+        if (lastSavedDay == parsed && hasMeaningfulContent) {
+            if (editingDate.value == parsed.date) {
+                saveStatus.value = EditorSaveStatus.Saved
+            }
             return true
         }
         saveStatus.value = EditorSaveStatus.Saving
         return runCatching {
-            workoutRepository.saveWorkoutDay(parsed)
+            if (hasMeaningfulContent) {
+                workoutRepository.saveWorkoutDay(parsed)
+            } else {
+                workoutRepository.deleteWorkoutDay(savingDate)
+            }
         }.fold(
             onSuccess = {
-                lastSavedDay = parsed
-                originalEditorDay.value = parsed
-                saveStatus.value = EditorSaveStatus.Saved
+                if (editingDate.value == savingDate) {
+                    lastSavedDay = parsed
+                    originalEditorDay.value = parsed
+                    saveStatus.value = EditorSaveStatus.Saved
+                }
                 true
             },
             onFailure = {
                 pendingExitAfterSave = false
-                saveStatus.value = EditorSaveStatus.SaveError
+                if (editingDate.value == savingDate) {
+                    saveStatus.value = EditorSaveStatus.SaveError
+                }
                 false
             }
         )
@@ -754,12 +760,6 @@ private fun WorkoutEditorDraft.toWorkoutDayOrError(): WorkoutDay? {
         actions = actions
     )
 }
-
-private fun WorkoutDay.hasMeaningfulContent(): Boolean =
-    actions.any { it.name.trim().isNotBlank() } || notes.isNotBlank() || durationMinutes != null
-
-private fun WorkoutDay.hasPersistedContent(): Boolean =
-    actions.isNotEmpty() || notes.isNotBlank() || durationMinutes != null
 
 private fun String.isPositiveIntOrBlank(): Boolean {
     val text = trim()

@@ -20,6 +20,7 @@ import com.example.fitnessrecord.model.TrendMode
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
+import com.example.fitnessrecord.model.hasMeaningfulContent
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -64,11 +65,19 @@ class DefaultWorkoutRepository(
     override suspend fun getWorkoutDays(): List<WorkoutDay> = observeWorkoutDays().first()
 
     override suspend fun saveWorkoutDay(day: WorkoutDay) {
-        val now = System.currentTimeMillis()
         val validActions = day.actions
             .mapIndexed { index, action -> index to action }
             .filter { (_, action) -> action.name.isNotBlank() }
 
+        val persistedDay = day.copy(actions = validActions.map { (_, action) -> action })
+        if (!persistedDay.hasMeaningfulContent()) {
+            // An empty workout day should not exist as a persisted record.
+            // Saving an empty day is treated as deleting that day.
+            deleteWorkoutDay(day.date)
+            return
+        }
+
+        val now = System.currentTimeMillis()
         workoutDao.replaceWorkoutDay(
             day = WorkoutDayEntity(
                 dateEpochDay = day.date.toEpochDay(),

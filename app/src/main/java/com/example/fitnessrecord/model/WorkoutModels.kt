@@ -33,6 +33,25 @@ data class WorkoutSet(
     val notes: String = "",
 )
 
+fun WorkoutDay.hasMeaningfulContent(): Boolean =
+    actions.any { it.hasMeaningfulContent() } ||
+        notes.isNotBlank() ||
+        durationMinutes.isPositive()
+
+fun WorkoutAction.hasMeaningfulContent(): Boolean =
+    name.isNotBlank() || sets.any { it.hasMeaningfulContent() }
+
+fun WorkoutSet.hasMeaningfulContent(): Boolean =
+    reps.isPositive() ||
+        weightKg.isPositive() ||
+        durationSeconds.isPositive() ||
+        distanceKm.isPositive() ||
+        notes.isNotBlank()
+
+private fun Int?.isPositive(): Boolean = this != null && this > 0
+
+private fun Double?.isPositive(): Boolean = this != null && isFinite() && this > 0.0
+
 @Immutable
 data class AttendancePoint(
     val label: String,
