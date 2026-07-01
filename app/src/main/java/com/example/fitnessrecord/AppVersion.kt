@@ -1,8 +1,8 @@
 ﻿package com.example.fitnessrecord
 
 object AppVersion {
-    const val NAME = "0.1.22"
-    const val CODE = 23
+    val NAME: String = BuildConfig.VERSION_NAME
+    val CODE: Int = BuildConfig.VERSION_CODE
 }
 
 
