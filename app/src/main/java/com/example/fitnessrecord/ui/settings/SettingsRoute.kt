@@ -112,8 +112,10 @@ fun SettingsRoute(
     promptMessage: AiConnectionTestMessage?,
     tokenUsage: AiTokenUsage?,
     runtimeLogText: String,
+    hasPreviousCrash: Boolean,
     hasUnsavedAiConfig: Boolean,
     quickImportState: QuickImportUiState,
+    onDismissPreviousCrash: () -> Unit,
     onThemeColorChange: (String) -> Unit,
     onCheckUpdates: () -> Unit,
     onExportData: () -> Unit,
@@ -209,6 +211,8 @@ fun SettingsRoute(
                 updateCheckState = updateCheckState,
                 availableUpdate = availableUpdate,
                 logText = runtimeLogText,
+                hasPreviousCrash = hasPreviousCrash,
+                onDismissPreviousCrash = onDismissPreviousCrash,
                 onCheckUpdates = onCheckUpdates,
                 onRefreshLogs = onRefreshLogs,
                 onClearLogs = onClearLogs,
@@ -651,6 +655,8 @@ private fun QuickImportResult.summaryText(): String = buildString {
 @Composable
 private fun RuntimeLogCard(
     logText: String,
+    hasPreviousCrash: Boolean,
+    onDismissPreviousCrash: () -> Unit,
     onRefreshLogs: () -> Unit,
     onClearLogs: () -> Unit,
     onExportLogs: () -> Unit,
@@ -667,10 +673,27 @@ private fun RuntimeLogCard(
             ) {
                 Text("运行日志", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "这里保存 App 启动、AI 请求、导出等关键运行信息。导出后可以把 txt 文件发给我定位问题。",
+                    text = "这里保存 App 启动、AI 请求、导出等关键运行信息。日志可能包含设备信息、错误信息和部分接口响应片段，请确认后再分享。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (hasPreviousCrash) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "检测到上次异常退出。建议先导出日志，再清空或继续排查。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            TextButton(onClick = onDismissPreviousCrash) {
+                                Text("已知晓")
+                            }
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1150,6 +1173,8 @@ private fun VersionInfoScreen(
     updateCheckState: UpdateCheckState,
     availableUpdate: AppRelease?,
     logText: String,
+    hasPreviousCrash: Boolean,
+    onDismissPreviousCrash: () -> Unit,
     onCheckUpdates: () -> Unit,
     onRefreshLogs: () -> Unit,
     onClearLogs: () -> Unit,
@@ -1221,6 +1246,8 @@ private fun VersionInfoScreen(
         item {
             RuntimeLogCard(
                 logText = logText,
+                hasPreviousCrash = hasPreviousCrash,
+                onDismissPreviousCrash = onDismissPreviousCrash,
                 onRefreshLogs = onRefreshLogs,
                 onClearLogs = onClearLogs,
                 onExportLogs = onExportLogs

@@ -10,7 +10,6 @@ class FitnessRecordApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLogger.init(this)
-        AppLogger.i("App", "FRA started")
         appContainer = AppContainer(this)
     }
 }

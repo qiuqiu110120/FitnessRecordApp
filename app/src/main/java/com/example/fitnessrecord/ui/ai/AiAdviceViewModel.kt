@@ -29,7 +29,7 @@ class AiAdviceViewModel(
 
     fun refreshDashboardData(showLoading: Boolean = false) {
         if (_uiState.value.isLoading) return
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             if (showLoading) {
                 _uiState.value = _uiState.value.copy(isDashboardLoading = true)
             }
@@ -66,7 +66,7 @@ class AiAdviceViewModel(
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             AppLogger.i("AiAdvice", "AI advice refresh started by user")
             startCountdown()
             runCatching {
@@ -120,7 +120,7 @@ class AiAdviceViewModel(
             errorMessage = null,
             eventMessage = null
         )
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             for (second in AI_TIMEOUT_SECONDS downTo 0) {
                 if (!_uiState.value.isLoading) return@launch
                 val elapsed = AI_TIMEOUT_SECONDS - second

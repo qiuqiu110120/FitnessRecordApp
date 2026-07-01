@@ -51,6 +51,9 @@ import com.example.fitnessrecord.ui.theme.FitnessRecordTheme
 import com.example.fitnessrecord.util.AppLogger
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,12 +105,13 @@ private fun FitnessRecordApp(
     val aiSettingsViewModel: AiSettingsViewModel = viewModel(factory = appContainer.aiSettingsViewModelFactory)
     val scope = rememberCoroutineScope()
     var runtimeLogText by remember { mutableStateOf("正在读取日志...") }
+    var hasPreviousCrash by remember { mutableStateOf(AppLogger.hasPreviousCrash()) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
+        scope.launch(AppLogger.coroutineExceptionHandler) {
             runCatching {
                 val json = homeViewModel.exportWorkoutDataJson()
                 context.contentResolver.openOutputStream(uri)?.use { output ->
@@ -127,7 +131,7 @@ private fun FitnessRecordApp(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
+        scope.launch(AppLogger.coroutineExceptionHandler) {
             runCatching {
                 val size = context.contentResolver.query(uri, null, null, null, null)
                     ?.use { cursor -> cursor.fileSizeOrNull() }
@@ -152,14 +156,16 @@ private fun FitnessRecordApp(
         contract = ActivityResultContracts.CreateDocument("text/plain")
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
+        scope.launch(AppLogger.coroutineExceptionHandler) {
             runCatching {
-                val logText = AppLogger.read()
+                val logText = AppLogger.exportText()
                 context.contentResolver.openOutputStream(uri)?.use { output ->
                     output.write(logText.toByteArray(StandardCharsets.UTF_8))
                 }
                 AppLogger.i("Export", "Runtime log exported")
             }.onSuccess {
+                AppLogger.clearPreviousCrash()
+                hasPreviousCrash = AppLogger.hasPreviousCrash()
                 Toast.makeText(context, "运行日志已导出", Toast.LENGTH_SHORT).show()
             }.onFailure { error ->
                 AppLogger.e("Export", "Runtime log export failed", error)
@@ -253,7 +259,12 @@ private fun FitnessRecordApp(
                         tokenUsage = aiState.tokenUsage,
                         hasUnsavedAiConfig = settingsState.hasUnsavedChanges,
                         runtimeLogText = runtimeLogText,
+                        hasPreviousCrash = hasPreviousCrash,
                         quickImportState = homeState.importState,
+                        onDismissPreviousCrash = {
+                            AppLogger.clearPreviousCrash()
+                            hasPreviousCrash = AppLogger.hasPreviousCrash()
+                        },
                         onThemeColorChange = aiSettingsViewModel::saveThemeColor,
                         onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
                         onExportData = { exportLauncher.launch("fra-workout-export.json") },
@@ -261,16 +272,20 @@ private fun FitnessRecordApp(
                         onConfirmQuickImport = homeViewModel::confirmQuickImport,
                         onClearQuickImportState = homeViewModel::clearQuickImportState,
                         onRefreshLogs = {
-                            scope.launch { runtimeLogText = AppLogger.read() }
+                            scope.launch(AppLogger.coroutineExceptionHandler) {
+                                runtimeLogText = AppLogger.read()
+                                hasPreviousCrash = AppLogger.hasPreviousCrash()
+                            }
                         },
                         onClearLogs = {
-                            scope.launch {
+                            scope.launch(AppLogger.coroutineExceptionHandler) {
                                 AppLogger.clear()
                                 runtimeLogText = AppLogger.read()
+                                hasPreviousCrash = AppLogger.hasPreviousCrash()
                                 Toast.makeText(context, "运行日志已清空", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        onExportLogs = { logExportLauncher.launch("fra-runtime-log.txt") },
+                        onExportLogs = { logExportLauncher.launch(runtimeLogFileName()) },
                         onProviderChange = aiSettingsViewModel::updateProvider,
                         onBaseUrlChange = aiSettingsViewModel::updateBaseUrl,
                         onApiKeyChange = aiSettingsViewModel::updateApiKey,
@@ -289,6 +304,11 @@ private fun FitnessRecordApp(
     }
 }
 private const val BACK_EXIT_INTERVAL_MS = 2_000L
+
+private fun runtimeLogFileName(): String {
+    val timestamp = SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.US).format(Date())
+    return "fra-logs-$timestamp.txt"
+}
 
 private fun Cursor.fileSizeOrNull(): Long? {
     val sizeIndex = getColumnIndex(OpenableColumns.SIZE)

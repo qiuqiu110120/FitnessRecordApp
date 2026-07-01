@@ -24,12 +24,12 @@ class AiSettingsViewModel(
     val uiState: StateFlow<AiSettingsUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             settingsRepository.aiProviderConfig.collect { config ->
                 _uiState.value = _uiState.value.copy(providerConfig = config, providerDraft = config)
             }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             settingsRepository.aiAdvicePromptConfig.collect { config ->
                 _uiState.value = _uiState.value.copy(
                     promptConfig = config,
@@ -38,7 +38,7 @@ class AiSettingsViewModel(
                 )
             }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             settingsRepository.themeColorKey.collect { key ->
                 _uiState.value = _uiState.value.copy(themeColorKey = key)
             }
@@ -74,7 +74,7 @@ class AiSettingsViewModel(
     }
 
     fun testConnection() {
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             _uiState.value = _uiState.value.copy(isTestingConnection = true, testMessage = null)
             val draft = _uiState.value.providerDraft
             AppLogger.i("AiSettings", "Testing AI connection. baseUrl=${draft.baseUrl}, provider=${draft.provider}, model=${draft.model}")
@@ -103,7 +103,7 @@ class AiSettingsViewModel(
     }
 
     fun save() {
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             val providerDraft = _uiState.value.providerDraft
             val promptDraft = normalizeAiAdvicePromptConfig(_uiState.value.promptDraft)
             if (promptDraft.customPrompt.length > MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS) {
@@ -134,7 +134,7 @@ class AiSettingsViewModel(
     }
 
     fun clear() {
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             settingsRepository.clearAiProviderConfig()
             _uiState.value = _uiState.value.copy(
                 providerConfig = AiProviderConfig(),
@@ -146,7 +146,7 @@ class AiSettingsViewModel(
     }
 
     fun restoreDefaultPrompt() {
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             val defaultConfig = AiAdvicePromptConfig()
             settingsRepository.saveAiAdvicePromptConfig(defaultConfig)
             settingsRepository.clearAiAdviceCache()
@@ -160,7 +160,7 @@ class AiSettingsViewModel(
     }
 
     fun saveThemeColor(key: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             settingsRepository.saveThemeColorKey(key)
         }
     }

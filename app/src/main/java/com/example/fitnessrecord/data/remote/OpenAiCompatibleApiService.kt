@@ -19,8 +19,11 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.ConnectException
+import java.net.ProtocolException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import javax.net.ssl.SSLException
+import javax.net.ssl.SSLHandshakeException
 import java.util.concurrent.TimeUnit
 
 class OpenAiCompatibleApiService(
@@ -43,7 +46,7 @@ class OpenAiCompatibleApiService(
         val content = response.firstContent().stripJsonFence()
         val advice = runCatching { json.decodeFromString<AiAdviceResponse>(content).toModel() }
             .getOrElse { error ->
-                AppLogger.e("AiApi", "AI advice JSON parse failed. Content=${content.take(500)}", error)
+                AppLogger.e("AiApi", "AI advice JSON parse failed. ${content.toSanitizedSnippet("content")}", error)
                 throw IOException("大模型返回 JSON 解析失败：${error.message}", error)
             }
 
@@ -78,19 +81,26 @@ class OpenAiCompatibleApiService(
     private fun executeChatCompletion(payload: ChatCompletionRequest): ChatCompletionResponse {
         val requestBody = json.encodeToString(payload).toRequestBody(jsonMediaType)
         val primaryUrl = config.baseUrl.toChatCompletionsUrl()
-        AppLogger.i("AiApi", "Requesting chat completion. url=$primaryUrl, model=${config.model}")
+        AppLogger.d("AiApi", "Requesting chat completion. url=$primaryUrl, model=${config.model}")
         return runCatching {
             executeChatCompletionRequest(primaryUrl, requestBody)
         }.recoverCatching { error ->
             val fallbackUrl = primaryUrl.httpsToHttpFallback()
             if (error.isTlsProtocolMismatch() && fallbackUrl != null) {
-                AppLogger.i("AiApi", "TLS mismatch detected. Retrying with fallback url=$fallbackUrl")
+                AppLogger.w(
+                    "AiApi",
+                    "TLS mismatch detected. Retrying with fallback url=$fallbackUrl securityWarning=https_to_http_fallback"
+                )
                 executeChatCompletionRequest(fallbackUrl, requestBody)
             } else {
                 throw error.toUserFriendlyNetworkError(config.baseUrl)
             }
         }.getOrElse { error ->
-            AppLogger.e("AiApi", "Chat completion request failed. baseUrl=${config.baseUrl}, model=${config.model}", error)
+            AppLogger.e(
+                "AiApi",
+                "Chat completion request failed. category=${error.networkErrorCategory()} baseUrl=${config.baseUrl}, model=${config.model}",
+                error
+            )
             throw error.toUserFriendlyNetworkError(config.baseUrl)
         }
     }
@@ -109,13 +119,20 @@ class OpenAiCompatibleApiService(
         client.newCall(httpRequest).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                AppLogger.e("AiApi", "Chat completion failed. HTTP ${response.code}. Body=${body.take(300)}")
-                throw IOException("大模型请求失败：HTTP ${response.code} ${body.take(180)}")
+                AppLogger.e(
+                    "AiApi",
+                    "Chat completion failed. HTTP ${response.code}. ${body.toSanitizedSnippet("body")}"
+                )
+                throw IOException("大模型请求失败：HTTP ${response.code}，详情可导出运行日志查看。")
             }
-            AppLogger.i("AiApi", "Chat completion succeeded. HTTP ${response.code}. BodyLength=${body.length}")
+            AppLogger.i("AiApi", "Chat completion succeeded. HTTP ${response.code}. rawBodyLength=${body.length}")
             return runCatching { json.decodeFromString<ChatCompletionResponse>(body) }
                 .getOrElse { error ->
-                    AppLogger.e("AiApi", "Chat completion response parse failed. Body=${body.take(500)}", error)
+                    AppLogger.e(
+                        "AiApi",
+                        "Chat completion response parse failed. ${body.toSanitizedSnippet("body")}",
+                        error
+                    )
                     throw error
                 }
         }
@@ -151,6 +168,16 @@ class OpenAiCompatibleApiService(
         }
 
     private fun Throwable.isTlsProtocolMismatch(): Boolean {
+        if (this is SSLException || this is SSLHandshakeException || this is ProtocolException) {
+            val typedText = buildString {
+                append(message.orEmpty())
+                cause?.message?.let { append(' ').append(it) }
+            }.lowercase()
+            return "unable to parse tls packet header" in typedText ||
+                "not an ssl/tls record" in typedText ||
+                "wrong version number" in typedText ||
+                "plaintext connection" in typedText
+        }
         val text = buildString {
             append(message.orEmpty())
             cause?.message?.let { append(' ').append(it) }
@@ -185,6 +212,20 @@ class OpenAiCompatibleApiService(
         return this
     }
 
+    private fun Throwable.networkErrorCategory(): String = when (this) {
+        is SocketTimeoutException -> "timeout"
+        is UnknownHostException -> "dns"
+        is ConnectException -> "connect"
+        is SSLHandshakeException -> "tls"
+        is SSLException -> "tls"
+        is ProtocolException -> "protocol"
+        else -> when {
+            isTlsProtocolMismatch() -> "tls_protocol_mismatch"
+            isConnectionTimeout() -> "timeout"
+            else -> "unknown"
+        }
+    }
+
     private fun Throwable.isConnectionTimeout(): Boolean {
         if (this is SocketTimeoutException) return true
         val text = buildString {
@@ -202,6 +243,31 @@ class OpenAiCompatibleApiService(
             .removePrefix("```")
             .removeSuffix("```")
             .trim()
+    }
+
+    private fun String.toSanitizedSnippet(label: String, limit: Int = 500): String {
+        val snippet = AppLogger.sanitizeForLog(take(limit))
+        return buildString {
+            append("raw")
+            append(label.replaceFirstChar { it.uppercaseChar() })
+            append("Length=")
+            append(length)
+            append(' ')
+            append(label)
+            append("SnippetLength=")
+            append(snippet.length)
+            append(" ")
+            append(label)
+            append("Sanitized=true ")
+            append(label)
+            append("Truncated=")
+            append(length > limit)
+            append(" ")
+            append(label)
+            append("Snippet=\"")
+            append(snippet)
+            append("\"")
+        }
     }
 
     private fun AiAdviceRequest.toPromptPayload(userPrompt: String): AiPromptPayload = AiPromptPayload(
