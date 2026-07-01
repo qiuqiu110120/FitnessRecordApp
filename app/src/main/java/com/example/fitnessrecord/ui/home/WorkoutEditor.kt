@@ -51,6 +51,7 @@ fun WorkoutEditorScreen(
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
     customActions: List<CustomAction>,
+    hasAnyCustomActions: Boolean,
     message: String?,
     onSelectFolder: (Long?) -> Unit,
     onTrainingTypeChange: (String) -> Unit,
@@ -126,6 +127,7 @@ fun WorkoutEditorScreen(
                 folders = folders,
                 selectedFolderId = selectedFolderId,
                 customActions = customActions,
+                hasAnyCustomActions = hasAnyCustomActions,
                 onSelectFolder = onSelectFolder,
                 onAddAction = onAddAction,
                 onAddCustomAction = onAddCustomAction
@@ -263,6 +265,7 @@ private fun AddActionsPanel(
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
     customActions: List<CustomAction>,
+    hasAnyCustomActions: Boolean,
     onSelectFolder: (Long?) -> Unit,
     onAddAction: () -> Unit,
     onAddCustomAction: (String) -> Unit,
@@ -271,11 +274,23 @@ private fun AddActionsPanel(
     val folderName = selectedFolder?.name ?: "全部"
     var folderExpanded by rememberSaveable { mutableStateOf(false) }
     var actionExpanded by rememberSaveable { mutableStateOf(false) }
-    var selectedActionName by rememberSaveable(selectedFolderId, customActions) { mutableStateOf(customActions.firstOrNull()?.name.orEmpty()) }
-    val selectedActionExists = customActions.any { it.name == selectedActionName }
-    LaunchedEffect(customActions, selectedActionExists, selectedActionName) {
-        if (!selectedActionExists) {
-            selectedActionName = customActions.firstOrNull()?.name.orEmpty()
+    var selectedActionId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val selectedAction = customActions.firstOrNull { it.id == selectedActionId }
+    val actionNameCounts = customActions.groupingBy { it.name }.eachCount()
+    val emptyActionText = when {
+        customActions.isNotEmpty() -> "请选择动作"
+        !hasAnyCustomActions -> "动作库暂无动作"
+        else -> "当前文件夹没有动作"
+    }
+
+    LaunchedEffect(selectedFolderId) {
+        selectedActionId = null
+        actionExpanded = false
+    }
+    LaunchedEffect(customActions, selectedActionId) {
+        if (selectedActionId != null && selectedAction == null) {
+            selectedActionId = null
+            actionExpanded = false
         }
     }
 
@@ -326,6 +341,7 @@ private fun AddActionsPanel(
                     DropdownMenuItem(
                         text = { Text("全部") },
                         onClick = {
+                            selectedActionId = null
                             onSelectFolder(null)
                             folderExpanded = false
                         }
@@ -334,6 +350,7 @@ private fun AddActionsPanel(
                         DropdownMenuItem(
                             text = { Text(folder.name) },
                             onClick = {
+                                selectedActionId = null
                                 onSelectFolder(folder.id)
                                 folderExpanded = false
                             }
@@ -353,7 +370,7 @@ private fun AddActionsPanel(
                     modifier = Modifier.weight(1f)
                 ) {
                     OutlinedTextField(
-                        value = selectedActionName,
+                        value = selectedAction?.displayName(actionNameCounts, folders).orEmpty(),
                         onValueChange = {},
                         modifier = Modifier
                             .menuAnchor()
@@ -361,7 +378,7 @@ private fun AddActionsPanel(
                         readOnly = true,
                         enabled = customActions.isNotEmpty(),
                         label = { Text("动作") },
-                        placeholder = { Text("当前文件夹没有动作") },
+                        placeholder = { Text(emptyActionText) },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = actionExpanded) },
                         colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
                     )
@@ -371,9 +388,9 @@ private fun AddActionsPanel(
                     ) {
                         customActions.forEach { action ->
                             DropdownMenuItem(
-                                text = { Text(action.name) },
+                                text = { Text(action.displayName(actionNameCounts, folders)) },
                                 onClick = {
-                                    selectedActionName = action.name
+                                    selectedActionId = action.id
                                     actionExpanded = false
                                 }
                             )
@@ -381,8 +398,14 @@ private fun AddActionsPanel(
                     }
                 }
                 Button(
-                    onClick = { onAddCustomAction(selectedActionName) },
-                    enabled = selectedActionName.isNotBlank()
+                    onClick = {
+                        selectedAction?.let { action ->
+                            onAddCustomAction(action.name)
+                            selectedActionId = null
+                            actionExpanded = false
+                        }
+                    },
+                    enabled = selectedAction != null
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
@@ -399,6 +422,15 @@ private fun AddActionsPanel(
             }
         }
     }
+}
+
+private fun CustomAction.displayName(
+    actionNameCounts: Map<String, Int>,
+    folders: List<CustomActionFolder>,
+): String {
+    if ((actionNameCounts[name] ?: 0) <= 1) return name
+    val folderName = folders.firstOrNull { it.id == folderId }?.name ?: "默认"
+    return "$name · $folderName"
 }
 
 @Composable

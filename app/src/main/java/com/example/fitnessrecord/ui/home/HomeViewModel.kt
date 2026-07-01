@@ -79,6 +79,9 @@ class HomeViewModel(
         .flatMapLatest { folderId -> workoutRepository.observeCustomActions(folderId) }
         .distinctUntilChanged()
 
+    private val hasAnyCustomActions = workoutRepository.observeCustomActions()
+        .distinctUntilChanged()
+
     private val dateState = combine(selectedDate, visibleMonth, calendarMode) { date, month, mode ->
         HomeDateState(selectedDate = date, visibleMonth = month, calendarMode = mode)
     }.distinctUntilChanged()
@@ -90,13 +93,15 @@ class HomeViewModel(
     private val customActionContentState = combine(
         customActionFolders,
         selectedCustomActions,
-        selectedActionFolderId
-    ) { folders, customActions, selectedFolderId ->
+        selectedActionFolderId,
+        hasAnyCustomActions
+    ) { folders, customActions, selectedFolderId, allCustomActions ->
         val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
         HomeCustomActionContentState(
             customActionFolders = folders,
             selectedActionFolderId = if (selectedFolderId == null) null else selectedFolder?.id,
-            customActions = customActions
+            customActions = customActions,
+            hasAnyCustomActions = allCustomActions.isNotEmpty()
         )
     }.distinctUntilChanged()
 
@@ -117,6 +122,7 @@ class HomeViewModel(
             customActionFolders = content.customActionFolders,
             selectedActionFolderId = content.selectedActionFolderId,
             customActions = content.customActions,
+            hasAnyCustomActions = content.hasAnyCustomActions,
             customActionDraft = draft.customActionDraft,
             customActionFolderDraft = draft.customActionFolderDraft,
             actionLibraryMessage = draft.actionLibraryMessage
@@ -154,6 +160,7 @@ class HomeViewModel(
             customActionFolders = customActionState.customActionFolders,
             selectedActionFolderId = customActionState.selectedActionFolderId,
             customActions = customActionState.customActions,
+            hasAnyCustomActions = customActionState.hasAnyCustomActions,
             customActionDraft = customActionState.customActionDraft,
             customActionFolderDraft = customActionState.customActionFolderDraft,
             actionLibraryMessage = customActionState.actionLibraryMessage,
@@ -647,6 +654,7 @@ private data class HomeCustomActionState(
     val customActionFolders: List<CustomActionFolder>,
     val selectedActionFolderId: Long?,
     val customActions: List<CustomAction>,
+    val hasAnyCustomActions: Boolean,
     val customActionDraft: String,
     val customActionFolderDraft: String,
     val actionLibraryMessage: String?,
@@ -657,6 +665,7 @@ private data class HomeCustomActionContentState(
     val customActionFolders: List<CustomActionFolder>,
     val selectedActionFolderId: Long?,
     val customActions: List<CustomAction>,
+    val hasAnyCustomActions: Boolean,
 )
 
 @Immutable
@@ -679,6 +688,7 @@ data class HomeUiState(
     val customActionFolders: List<CustomActionFolder> = emptyList(),
     val selectedActionFolderId: Long? = null,
     val customActions: List<CustomAction> = emptyList(),
+    val hasAnyCustomActions: Boolean = false,
     val customActionDraft: String = "",
     val customActionFolderDraft: String = "",
     val actionLibraryMessage: String? = null,

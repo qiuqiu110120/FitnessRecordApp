@@ -117,6 +117,7 @@ fun HomeRoute(
                     folders = uiState.customActionFolders,
                     selectedFolderId = uiState.selectedActionFolderId,
                     customActions = uiState.customActions,
+                    hasAnyCustomActions = uiState.hasAnyCustomActions,
                     message = uiState.actionLibraryMessage,
                     onSelectFolder = viewModel::selectActionFolder,
                     onTrainingTypeChange = viewModel::updateTrainingType,
