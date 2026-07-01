@@ -3,6 +3,7 @@ package com.example.fitnessrecord.ui.home
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitnessrecord.data.importer.parseQuickWorkoutImportJson
 import com.example.fitnessrecord.data.repository.ActionFolderSaveResult
 import com.example.fitnessrecord.data.repository.CustomActionSaveResult
 import com.example.fitnessrecord.data.repository.DeleteFolderResult
@@ -10,11 +11,16 @@ import com.example.fitnessrecord.data.repository.WorkoutRepository
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
 import com.example.fitnessrecord.model.DEFAULT_CUSTOM_ACTION_FOLDER_ID
+import com.example.fitnessrecord.model.QuickImportPlan
+import com.example.fitnessrecord.model.QuickImportPreview
+import com.example.fitnessrecord.model.QuickImportResult
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -42,11 +48,21 @@ class HomeViewModel(
     private val visibleMonth = MutableStateFlow(YearMonth.now())
     private val calendarMode = MutableStateFlow(CalendarMode.Month)
     private val editingDate = MutableStateFlow<LocalDate?>(null)
-    private val editorDraft = MutableStateFlow<WorkoutDay?>(null)
+    private val editorDraft = MutableStateFlow<WorkoutEditorDraft?>(null)
+    private val originalEditorDay = MutableStateFlow<WorkoutDay?>(null)
+    private val saveStatus = MutableStateFlow<EditorSaveStatus>(EditorSaveStatus.Idle)
     private val selectedActionFolderId = MutableStateFlow<Long?>(null)
     private val customActionDraft = MutableStateFlow("")
     private val customActionFolderDraft = MutableStateFlow("")
     private val actionLibraryMessage = MutableStateFlow<String?>(null)
+    private val importState = MutableStateFlow(QuickImportUiState())
+
+    private var debounceSaveJob: Job? = null
+    private var saveJob: Job? = null
+    private var saveInProgress = false
+    private var saveRequestedDuringRun = false
+    private var pendingExitAfterSave = false
+    private var lastSavedDay: WorkoutDay? = null
 
     private val selectedWorkoutDay = selectedDate
         .flatMapLatest { date -> workoutRepository.observeWorkoutDay(date) }
@@ -62,19 +78,12 @@ class HomeViewModel(
         .flatMapLatest { folderId -> workoutRepository.observeCustomActions(folderId) }
         .distinctUntilChanged()
 
-    private val dateState = combine(
-        selectedDate,
-        visibleMonth,
-        calendarMode
-    ) { date, month, mode ->
+    private val dateState = combine(selectedDate, visibleMonth, calendarMode) { date, month, mode ->
         HomeDateState(selectedDate = date, visibleMonth = month, calendarMode = mode)
     }.distinctUntilChanged()
 
-    private val editorState = combine(
-        editingDate,
-        editorDraft
-    ) { editingDate, editorDraft ->
-        HomeEditorState(editingDate = editingDate, editorDraft = editorDraft)
+    private val editorState = combine(editingDate, editorDraft, saveStatus) { editingDate, editorDraft, saveStatus ->
+        HomeEditorState(editingDate = editingDate, editorDraft = editorDraft, saveStatus = saveStatus)
     }.distinctUntilChanged()
 
     private val customActionContentState = combine(
@@ -102,10 +111,7 @@ class HomeViewModel(
         )
     }.distinctUntilChanged()
 
-    private val customActionState = combine(
-        customActionContentState,
-        customActionDraftState
-    ) { content, draft ->
+    private val customActionState = combine(customActionContentState, customActionDraftState) { content, draft ->
         HomeCustomActionState(
             customActionFolders = content.customActionFolders,
             selectedActionFolderId = content.selectedActionFolderId,
@@ -132,14 +138,16 @@ class HomeViewModel(
 
     val uiState: StateFlow<HomeUiState> = combine(
         contentState,
-        customActionState
-    ) { contentState, customActionState ->
+        customActionState,
+        importState
+    ) { contentState, customActionState, importState ->
         HomeUiState(
             selectedDate = contentState.dateState.selectedDate,
             visibleMonth = contentState.dateState.visibleMonth,
             calendarMode = contentState.dateState.calendarMode,
             editingDate = contentState.editorState.editingDate,
             editorDraft = contentState.editorState.editorDraft,
+            saveStatus = contentState.editorState.saveStatus,
             recordDates = contentState.recordDates,
             selectedWorkoutDay = contentState.selectedWorkoutDay,
             customActionFolders = customActionState.customActionFolders,
@@ -147,7 +155,8 @@ class HomeViewModel(
             customActions = customActionState.customActions,
             customActionDraft = customActionState.customActionDraft,
             customActionFolderDraft = customActionState.customActionFolderDraft,
-            actionLibraryMessage = customActionState.actionLibraryMessage
+            actionLibraryMessage = customActionState.actionLibraryMessage,
+            importState = importState
         )
     }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
@@ -187,24 +196,53 @@ class HomeViewModel(
 
     fun startEditing(day: WorkoutDay) {
         editingDate.value = day.date
-        editorDraft.value = day
+        originalEditorDay.value = day
+        lastSavedDay = day
+        editorDraft.value = day.toEditorDraft()
+        saveStatus.value = EditorSaveStatus.Idle
     }
 
     fun closeEditor() {
+        debounceSaveJob?.cancel()
+        saveJob?.cancel()
+        saveInProgress = false
+        saveRequestedDuringRun = false
+        pendingExitAfterSave = false
         editingDate.value = null
         editorDraft.value = null
+        originalEditorDay.value = null
+        lastSavedDay = null
+        saveStatus.value = EditorSaveStatus.Idle
+    }
+
+    fun requestCloseEditor() {
+        requestSave(immediate = true, exitAfterSave = true)
     }
 
     fun addAction() {
         updateDraft { day ->
-            day.copy(actions = day.actions + WorkoutAction(id = newLocalId(), name = "新动作", sets = listOf(WorkoutSet(id = newLocalId()))))
+            day.copy(
+                actions = day.actions + WorkoutActionDraft(
+                    id = newLocalId(),
+                    name = "",
+                    sets = listOf(WorkoutSetDraft(id = newLocalId()))
+                )
+            )
         }
+        requestSave(immediate = true)
     }
 
     fun addActionFromTemplate(actionName: String) {
         updateDraft { day ->
-            day.copy(actions = day.actions + WorkoutAction(id = newLocalId(), name = actionName, sets = listOf(WorkoutSet(id = newLocalId()))))
+            day.copy(
+                actions = day.actions + WorkoutActionDraft(
+                    id = newLocalId(),
+                    name = actionName,
+                    sets = listOf(WorkoutSetDraft(id = newLocalId()))
+                )
+            )
         }
+        requestSave(immediate = true)
     }
 
     fun createActionAndAddToDraft() {
@@ -228,30 +266,36 @@ class HomeViewModel(
         updateDraft { day ->
             day.copy(actions = day.actions.map { if (it.id == actionId) it.copy(name = name) else it })
         }
+        requestSave(immediate = false)
     }
 
     fun deleteAction(actionId: Long) {
         updateDraft { day -> day.copy(actions = day.actions.filterNot { it.id == actionId }) }
+        requestSave(immediate = true)
     }
 
     fun updateTrainingType(trainingType: String) {
         updateDraft { day -> day.copy(trainingType = trainingType) }
+        requestSave(immediate = false)
     }
 
     fun updateDurationMinutes(durationText: String) {
-        updateDraft { day -> day.copy(durationMinutes = durationText.toIntOrNull()) }
+        updateDraft { day -> day.copy(durationMinutes = durationText) }
+        requestSave(immediate = false)
     }
 
     fun updateNotes(notes: String) {
         updateDraft { day -> day.copy(notes = notes) }
+        requestSave(immediate = false)
     }
 
     fun addSet(actionId: Long) {
         updateDraft { day ->
             day.copy(actions = day.actions.map { action ->
-                if (action.id == actionId) action.copy(sets = action.sets + WorkoutSet(id = newLocalId())) else action
+                if (action.id == actionId) action.copy(sets = action.sets + WorkoutSetDraft(id = newLocalId())) else action
             })
         }
+        requestSave(immediate = true)
     }
 
     fun updateSet(actionId: Long, setId: Long, repsText: String, weightText: String) {
@@ -259,13 +303,14 @@ class HomeViewModel(
             day.copy(actions = day.actions.map { action ->
                 if (action.id == actionId) {
                     action.copy(sets = action.sets.map { set ->
-                        if (set.id == setId) set.copy(reps = repsText.toIntOrNull(), weightKg = weightText.toDoubleOrNull()) else set
+                        if (set.id == setId) set.copy(reps = repsText, weightKg = weightText) else set
                     })
                 } else {
                     action
                 }
             })
         }
+        requestSave(immediate = false)
     }
 
     fun deleteSet(actionId: Long, setId: Long) {
@@ -274,14 +319,15 @@ class HomeViewModel(
                 if (action.id == actionId) action.copy(sets = action.sets.filterNot { it.id == setId }) else action
             })
         }
+        requestSave(immediate = true)
     }
 
     fun saveDraft() {
-        val draft = editorDraft.value ?: return
-        viewModelScope.launch {
-            workoutRepository.saveWorkoutDay(draft)
-            closeEditor()
-        }
+        requestSave(immediate = true, exitAfterSave = true)
+    }
+
+    fun retrySave() {
+        requestSave(immediate = true)
     }
 
     fun deleteDraftDay() {
@@ -370,6 +416,42 @@ class HomeViewModel(
         actionLibraryMessage.value = null
     }
 
+    fun previewQuickImport(jsonText: String) {
+        importState.value = QuickImportUiState(isLoading = true)
+        viewModelScope.launch {
+            val parsed = withContext(Dispatchers.Default) { parseQuickWorkoutImportJson(jsonText) }
+            if (!parsed.isSuccess) {
+                importState.value = QuickImportUiState(errors = parsed.errors)
+                return@launch
+            }
+            runCatching { workoutRepository.previewQuickImport(parsed.workouts) }
+                .onSuccess { plan ->
+                    importState.value = QuickImportUiState(plan = plan, preview = plan.preview)
+                }
+                .onFailure { error ->
+                    importState.value = QuickImportUiState(errors = listOf(error.message ?: "导入预览失败"))
+                }
+        }
+    }
+
+    fun confirmQuickImport() {
+        val plan = importState.value.plan ?: return
+        importState.value = importState.value.copy(isLoading = true)
+        viewModelScope.launch {
+            runCatching { workoutRepository.importQuickWorkouts(plan) }
+                .onSuccess { result ->
+                    importState.value = QuickImportUiState(result = result)
+                }
+                .onFailure { error ->
+                    importState.value = QuickImportUiState(errors = listOf(error.message ?: "导入失败"))
+                }
+        }
+    }
+
+    fun clearQuickImportState() {
+        importState.value = QuickImportUiState()
+    }
+
     suspend fun exportWorkoutDataJson(): String = withContext(Dispatchers.Default) {
         val workouts = workoutRepository.getWorkoutDays().sortedByDescending { it.date }
         val payload = buildJsonObject {
@@ -392,6 +474,9 @@ class HomeViewModel(
                                             addJsonObject {
                                                 set.reps?.let { put("reps", it) }
                                                 set.weightKg?.let { put("weightKg", it) }
+                                                set.durationSeconds?.let { put("durationSeconds", it) }
+                                                set.distanceKm?.let { put("distanceKm", it) }
+                                                if (set.notes.isNotBlank()) put("notes", set.notes)
                                             }
                                         }
                                     }
@@ -405,8 +490,84 @@ class HomeViewModel(
         exportJson.encodeToString(JsonObject.serializer(), payload)
     }
 
-    private fun updateDraft(update: (WorkoutDay) -> WorkoutDay) {
-        val current = editorDraft.value ?: WorkoutDay(selectedDate.value)
+    private fun requestSave(immediate: Boolean, exitAfterSave: Boolean = false) {
+        if (editorDraft.value == null) return
+        if (exitAfterSave) {
+            pendingExitAfterSave = true
+        }
+        debounceSaveJob?.cancel()
+        saveStatus.value = EditorSaveStatus.Editing
+        if (immediate) {
+            launchSaveLoop()
+        } else {
+            debounceSaveJob = viewModelScope.launch {
+                delay(800)
+                launchSaveLoop()
+            }
+        }
+    }
+
+    private fun launchSaveLoop() {
+        if (saveInProgress) {
+            saveRequestedDuringRun = true
+            return
+        }
+        saveJob = viewModelScope.launch {
+            saveInProgress = true
+            do {
+                saveRequestedDuringRun = false
+                val result = saveCurrentWorkout()
+                if (!result) {
+                    saveInProgress = false
+                    return@launch
+                }
+            } while (saveRequestedDuringRun)
+            saveInProgress = false
+            if (pendingExitAfterSave) {
+                closeEditor()
+            }
+        }
+    }
+
+    private suspend fun saveCurrentWorkout(): Boolean {
+        val draft = editorDraft.value ?: return true
+        val original = originalEditorDay.value
+        val parsed = draft.toWorkoutDayOrError()
+        if (parsed == null) {
+            pendingExitAfterSave = false
+            saveStatus.value = EditorSaveStatus.ValidationError
+            return false
+        }
+        val shouldCreate = original?.hasPersistedContent() == true || parsed.hasMeaningfulContent()
+        if (!shouldCreate) {
+            lastSavedDay = parsed
+            saveStatus.value = EditorSaveStatus.Saved
+            return true
+        }
+        if (lastSavedDay == parsed) {
+            saveStatus.value = EditorSaveStatus.Saved
+            return true
+        }
+        saveStatus.value = EditorSaveStatus.Saving
+        return runCatching {
+            workoutRepository.saveWorkoutDay(parsed)
+        }.fold(
+            onSuccess = {
+                lastSavedDay = parsed
+                originalEditorDay.value = parsed
+                saveStatus.value = EditorSaveStatus.Saved
+                true
+            },
+            onFailure = {
+                pendingExitAfterSave = false
+                saveStatus.value = EditorSaveStatus.SaveError
+                false
+            }
+        )
+    }
+
+    private fun updateDraft(update: (WorkoutEditorDraft) -> WorkoutEditorDraft) {
+        val current = editorDraft.value ?: WorkoutDay(selectedDate.value).toEditorDraft()
         val updated = update(current)
         if (editorDraft.value != updated) {
             editorDraft.value = updated
@@ -425,6 +586,38 @@ enum class CalendarMode(val label: String) {
     Week("周"),
 }
 
+enum class EditorSaveStatus {
+    Idle,
+    Editing,
+    Saving,
+    Saved,
+    ValidationError,
+    SaveError,
+}
+
+@Immutable
+data class WorkoutEditorDraft(
+    val date: LocalDate,
+    val trainingType: String = "力量训练",
+    val durationMinutes: String = "",
+    val notes: String = "",
+    val actions: List<WorkoutActionDraft> = emptyList(),
+)
+
+@Immutable
+data class WorkoutActionDraft(
+    val id: Long,
+    val name: String,
+    val sets: List<WorkoutSetDraft> = emptyList(),
+)
+
+@Immutable
+data class WorkoutSetDraft(
+    val id: Long,
+    val reps: String = "",
+    val weightKg: String = "",
+)
+
 @Immutable
 private data class HomeDateState(
     val selectedDate: LocalDate,
@@ -435,7 +628,8 @@ private data class HomeDateState(
 @Immutable
 private data class HomeEditorState(
     val editingDate: LocalDate?,
-    val editorDraft: WorkoutDay?,
+    val editorDraft: WorkoutEditorDraft?,
+    val saveStatus: EditorSaveStatus,
 )
 
 @Immutable
@@ -476,7 +670,8 @@ data class HomeUiState(
     val visibleMonth: YearMonth = YearMonth.now(),
     val calendarMode: CalendarMode = CalendarMode.Month,
     val editingDate: LocalDate? = null,
-    val editorDraft: WorkoutDay? = null,
+    val editorDraft: WorkoutEditorDraft? = null,
+    val saveStatus: EditorSaveStatus = EditorSaveStatus.Idle,
     val recordDates: Set<LocalDate> = emptySet(),
     val selectedWorkoutDay: WorkoutDay = WorkoutDay(LocalDate.now()),
     val customActionFolders: List<CustomActionFolder> = emptyList(),
@@ -485,4 +680,85 @@ data class HomeUiState(
     val customActionDraft: String = "",
     val customActionFolderDraft: String = "",
     val actionLibraryMessage: String? = null,
+    val importState: QuickImportUiState = QuickImportUiState(),
 )
+
+@Immutable
+data class QuickImportUiState(
+    val isLoading: Boolean = false,
+    val plan: QuickImportPlan? = null,
+    val preview: QuickImportPreview? = null,
+    val errors: List<String> = emptyList(),
+    val result: QuickImportResult? = null,
+)
+
+private fun WorkoutDay.toEditorDraft(): WorkoutEditorDraft = WorkoutEditorDraft(
+    date = date,
+    trainingType = trainingType,
+    durationMinutes = durationMinutes?.toString().orEmpty(),
+    notes = notes,
+    actions = actions.map { action ->
+        WorkoutActionDraft(
+            id = action.id.takeUnless { it == 0L } ?: -System.nanoTime(),
+            name = action.name,
+            sets = action.sets.map { set ->
+                WorkoutSetDraft(
+                    id = set.id.takeUnless { it == 0L } ?: -System.nanoTime(),
+                    reps = set.reps?.toString().orEmpty(),
+                    weightKg = set.weightKg?.cleanNumber().orEmpty()
+                )
+            }
+        )
+    }
+)
+
+private fun WorkoutEditorDraft.toWorkoutDayOrError(): WorkoutDay? {
+    if (!durationMinutes.isPositiveIntOrBlank()) return null
+    val duration = durationMinutes.trim().takeIf { it.isNotEmpty() }?.toInt()
+    val actions = actions.mapNotNull { action ->
+        val trimmedName = action.name.trim()
+        if (trimmedName.isBlank()) {
+            val hasSetInput = action.sets.any { it.reps.isNotBlank() || it.weightKg.isNotBlank() }
+            if (hasSetInput || action.id > 0L) return null
+            return@mapNotNull null
+        }
+        val sets = action.sets.map { set ->
+            if (!set.reps.isPositiveIntOrBlank() || !set.weightKg.isPositiveDoubleOrBlank()) return null
+            val reps = set.reps.trim().takeIf { it.isNotEmpty() }?.toInt()
+            val weight = set.weightKg.trim().takeIf { it.isNotEmpty() }?.toDouble()
+            WorkoutSet(id = set.id, reps = reps, weightKg = weight)
+        }
+        WorkoutAction(id = action.id, name = trimmedName, sets = sets)
+    }
+    return WorkoutDay(
+        date = date,
+        trainingType = trainingType.ifBlank { "力量训练" },
+        durationMinutes = duration,
+        notes = notes,
+        actions = actions
+    )
+}
+
+private fun WorkoutDay.hasMeaningfulContent(): Boolean =
+    actions.any { it.name.trim().isNotBlank() } || notes.isNotBlank() || durationMinutes != null
+
+private fun WorkoutDay.hasPersistedContent(): Boolean =
+    actions.isNotEmpty() || notes.isNotBlank() || durationMinutes != null
+
+private fun String.isPositiveIntOrBlank(): Boolean {
+    val text = trim()
+    if (text.isEmpty()) return true
+    val value = text.toIntOrNull() ?: return false
+    return value > 0
+}
+
+private fun String.isPositiveDoubleOrBlank(): Boolean {
+    val text = trim()
+    if (text.isEmpty()) return true
+    if (text.endsWith(".")) return false
+    val value = text.toDoubleOrNull() ?: return false
+    return value > 0.0
+}
+
+private fun Double.cleanNumber(): String =
+    if (this % 1.0 == 0.0) toInt().toString() else toString()

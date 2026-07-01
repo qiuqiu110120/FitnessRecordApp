@@ -29,7 +29,8 @@ class AppContainer(context: Context) {
     ).addMigrations(
         FitnessDatabase.MIGRATION_1_4,
         FitnessDatabase.MIGRATION_2_4,
-        FitnessDatabase.MIGRATION_3_4
+        FitnessDatabase.MIGRATION_3_4,
+        FitnessDatabase.MIGRATION_4_5
     )
         .addCallback(object : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {

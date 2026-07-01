@@ -10,6 +10,7 @@ import com.example.fitnessrecord.data.local.entity.CustomActionEntity
 import com.example.fitnessrecord.data.local.entity.WorkoutActionEntity
 import com.example.fitnessrecord.data.local.entity.WorkoutDayEntity
 import com.example.fitnessrecord.data.local.entity.WorkoutSetEntity
+import com.example.fitnessrecord.model.DEFAULT_CUSTOM_ACTION_FOLDER_NAME
 import com.example.fitnessrecord.model.DEFAULT_CUSTOM_ACTION_FOLDER_ID
 import com.example.fitnessrecord.data.local.relation.WorkoutDayWithActions
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +27,9 @@ interface WorkoutDao {
 
     @Query("SELECT dateEpochDay FROM workout_days WHERE deletedAt IS NULL ORDER BY dateEpochDay DESC")
     fun observeRecordDates(): Flow<List<Long>>
+
+    @Query("SELECT * FROM workout_days WHERE dateEpochDay = :dateEpochDay AND deletedAt IS NULL LIMIT 1")
+    suspend fun getWorkoutDay(dateEpochDay: Long): WorkoutDayEntity?
 
     @Query("SELECT * FROM custom_action_folders ORDER BY isDefault DESC, sortOrder ASC, name COLLATE NOCASE ASC")
     fun observeCustomActionFolders(): Flow<List<CustomActionFolderEntity>>
@@ -70,6 +74,9 @@ interface WorkoutDao {
     @Query("SELECT * FROM custom_action_folders WHERE id = :id")
     suspend fun getCustomActionFolder(id: Long): CustomActionFolderEntity?
 
+    @Query("SELECT * FROM custom_action_folders WHERE isDefault = 1 ORDER BY id ASC LIMIT 1")
+    suspend fun getDefaultCustomActionFolder(): CustomActionFolderEntity?
+
     @Query("SELECT id FROM custom_action_folders WHERE normalizedName = :normalizedName LIMIT 1")
     suspend fun findCustomActionFolderIdByNormalizedName(normalizedName: String): Long?
 
@@ -88,6 +95,9 @@ interface WorkoutDao {
     @Query("SELECT id FROM custom_actions WHERE folderId = :folderId AND normalizedName = :normalizedName LIMIT 1")
     suspend fun findCustomActionIdByNormalizedName(folderId: Long, normalizedName: String): Long?
 
+    @Query("SELECT * FROM custom_actions WHERE normalizedName = :normalizedName ORDER BY folderId ASC, sortOrder ASC, name COLLATE NOCASE ASC")
+    suspend fun findCustomActionsByNormalizedName(normalizedName: String): List<CustomActionEntity>
+
     @Query("SELECT * FROM custom_actions WHERE id = :id")
     suspend fun getCustomAction(id: Long): CustomActionEntity?
 
@@ -103,6 +113,9 @@ interface WorkoutDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDay(day: WorkoutDayEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertDayIfAbsent(day: WorkoutDayEntity): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertActions(actions: List<WorkoutActionEntity>): List<Long>
 
@@ -114,6 +127,9 @@ interface WorkoutDao {
 
     @Query("DELETE FROM workout_days WHERE dateEpochDay = :dateEpochDay")
     suspend fun deleteDay(dateEpochDay: Long)
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM workout_actions WHERE dateEpochDay = :dateEpochDay")
+    suspend fun getMaxWorkoutActionSortOrder(dateEpochDay: Long): Int
 
     @Transaction
     suspend fun replaceWorkoutDay(day: WorkoutDayEntity, actions: List<WorkoutActionEntity>, setsByActionIndex: List<List<WorkoutSetEntity>>) {
@@ -134,5 +150,77 @@ interface WorkoutDao {
         val sortOrder = getMaxActionSortOrder(folderId) + 1
         val id = upsertCustomAction(action.copy(folderId = folderId, sortOrder = sortOrder))
         return getCustomAction(id) ?: action.copy(id = id, folderId = folderId, sortOrder = sortOrder)
+    }
+
+    @Transaction
+    suspend fun appendWorkoutDays(days: List<WorkoutDayEntity>, actions: List<List<WorkoutActionEntity>>, setsByWorkoutAction: List<List<List<WorkoutSetEntity>>>) {
+        days.forEachIndexed { dayIndex, day ->
+            insertDayIfAbsent(day)
+            val baseSortOrder = getMaxWorkoutActionSortOrder(day.dateEpochDay) + 1
+            val actionIds = insertActions(
+                actions[dayIndex].mapIndexed { actionIndex, action ->
+                    action.copy(sortOrder = baseSortOrder + actionIndex)
+                }
+            )
+            val sets = setsByWorkoutAction[dayIndex].flatMapIndexed { actionIndex, actionSets ->
+                actionSets.map { it.copy(actionId = actionIds[actionIndex]) }
+            }
+            if (sets.isNotEmpty()) {
+                insertSets(sets)
+            }
+        }
+    }
+
+    @Transaction
+    suspend fun importQuickWorkoutDays(
+        now: Long,
+        days: List<WorkoutDayEntity>,
+        actions: List<List<WorkoutActionEntity>>,
+        setsByWorkoutAction: List<List<List<WorkoutSetEntity>>>,
+        missingActionNames: List<String>,
+    ): Int {
+        val defaultFolder = ensureDefaultFolder(now)
+        var newActionCount = 0
+        missingActionNames.forEach { name ->
+            val normalizedName = name.trim().lowercase()
+            if (findCustomActionsByNormalizedName(normalizedName).isEmpty()) {
+                insertCustomActionInFolder(
+                    CustomActionEntity(
+                        folderId = defaultFolder.id,
+                        name = name.trim(),
+                        normalizedName = normalizedName,
+                        sortOrder = 0,
+                        updatedAt = now
+                    )
+                )
+                newActionCount += 1
+            }
+        }
+        appendWorkoutDays(days, actions, setsByWorkoutAction)
+        return newActionCount
+    }
+
+    @Transaction
+    suspend fun ensureDefaultFolder(now: Long): CustomActionFolderEntity {
+        getDefaultCustomActionFolder()?.let { return it }
+        getCustomActionFolder(DEFAULT_CUSTOM_ACTION_FOLDER_ID)?.let { return it }
+        val id = insertCustomActionFolder(
+            CustomActionFolderEntity(
+                id = DEFAULT_CUSTOM_ACTION_FOLDER_ID,
+                name = DEFAULT_CUSTOM_ACTION_FOLDER_NAME,
+                normalizedName = DEFAULT_CUSTOM_ACTION_FOLDER_NAME.trim().lowercase(),
+                isDefault = true,
+                sortOrder = 0,
+                updatedAt = now
+            )
+        )
+        return getCustomActionFolder(id) ?: CustomActionFolderEntity(
+            id = id,
+            name = DEFAULT_CUSTOM_ACTION_FOLDER_NAME,
+            normalizedName = DEFAULT_CUSTOM_ACTION_FOLDER_NAME.trim().lowercase(),
+            isDefault = true,
+            sortOrder = 0,
+            updatedAt = now
+        )
     }
 }

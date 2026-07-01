@@ -3,6 +3,9 @@ package com.example.fitnessrecord.data.repository
 import com.example.fitnessrecord.model.AttendancePoint
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
+import com.example.fitnessrecord.model.QuickImportPlan
+import com.example.fitnessrecord.model.QuickImportResult
+import com.example.fitnessrecord.model.QuickImportWorkout
 import com.example.fitnessrecord.model.TrendMode
 import com.example.fitnessrecord.model.WorkoutDay
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +27,8 @@ interface WorkoutRepository {
     suspend fun deleteCustomActionFolder(id: Long): DeleteFolderResult
     suspend fun saveCustomAction(action: CustomAction): CustomActionSaveResult
     suspend fun deleteCustomAction(id: Long)
+    suspend fun previewQuickImport(workouts: List<QuickImportWorkout>): QuickImportPlan
+    suspend fun importQuickWorkouts(plan: QuickImportPlan): QuickImportResult
 }
 
 sealed interface ActionFolderSaveResult {

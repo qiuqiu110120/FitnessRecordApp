@@ -19,7 +19,7 @@ import com.example.fitnessrecord.data.local.entity.WorkoutSetEntity
         CustomActionFolderEntity::class,
         CustomActionEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class FitnessDatabase : RoomDatabase() {
@@ -41,6 +41,12 @@ abstract class FitnessDatabase : RoomDatabase() {
         val MIGRATION_3_4: Migration = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 migrateCustomActionsToFolders(db)
+            }
+        }
+
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addWorkoutSetImportFields(db)
             }
         }
 
@@ -113,6 +119,12 @@ abstract class FitnessDatabase : RoomDatabase() {
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_custom_action_folders_normalizedName ON custom_action_folders(normalizedName)")
             db.execSQL("CREATE INDEX IF NOT EXISTS index_custom_actions_folderId ON custom_actions(folderId)")
             db.execSQL("CREATE INDEX IF NOT EXISTS index_custom_actions_folderId_normalizedName ON custom_actions(folderId, normalizedName)")
+        }
+
+        private fun addWorkoutSetImportFields(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE workout_sets ADD COLUMN durationSeconds INTEGER")
+            db.execSQL("ALTER TABLE workout_sets ADD COLUMN distanceKm REAL")
+            db.execSQL("ALTER TABLE workout_sets ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         }
     }
 }

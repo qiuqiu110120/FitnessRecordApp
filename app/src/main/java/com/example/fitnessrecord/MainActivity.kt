@@ -2,8 +2,10 @@
 
 import android.app.Activity
 import android.content.Intent
+import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -39,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitnessrecord.ui.ai.AiAdviceRoute
 import com.example.fitnessrecord.ui.ai.AiAdviceViewModel
 import com.example.fitnessrecord.ui.ai.AiSettingsViewModel
+import com.example.fitnessrecord.data.importer.QUICK_IMPORT_MAX_FILE_BYTES
 import com.example.fitnessrecord.ui.home.HomeRoute
 import com.example.fitnessrecord.ui.home.HomeViewModel
 import com.example.fitnessrecord.ui.settings.AppSettingsViewModel
@@ -116,6 +119,31 @@ private fun FitnessRecordApp(
             }.onFailure { error ->
                 AppLogger.e("Export", "Workout data export failed", error)
                 Toast.makeText(context, error.message ?: "导出失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val size = context.contentResolver.query(uri, null, null, null, null)
+                    ?.use { cursor -> cursor.fileSizeOrNull() }
+                if (size != null && size > QUICK_IMPORT_MAX_FILE_BYTES) {
+                    error("导入文件超过 5MB，请拆分为多个较小的 JSON 文件后再导入。")
+                }
+                val jsonText = context.contentResolver.openInputStream(uri)?.use { input ->
+                    input.readBytes().also { bytes ->
+                        if (bytes.size > QUICK_IMPORT_MAX_FILE_BYTES) {
+                            error("导入文件超过 5MB，请拆分为多个较小的 JSON 文件后再导入。")
+                        }
+                    }.toString(StandardCharsets.UTF_8)
+                } ?: error("无法读取导入文件")
+                homeViewModel.previewQuickImport(jsonText)
+            }.onFailure { error ->
+                Toast.makeText(context, error.message ?: "读取导入文件失败", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -211,20 +239,27 @@ private fun FitnessRecordApp(
                 AppTab.Settings -> {
                     val aiState by aiAdviceViewModel.uiState.collectAsState()
                     val settingsState by aiSettingsViewModel.uiState.collectAsState()
+                    val homeState by homeViewModel.uiState.collectAsState()
                     SettingsRoute(
                         innerPadding = innerPadding,
                         themeColorKey = settingsState.themeColorKey,
                         updateCheckState = appSettingsState.updateCheckState,
                         availableUpdate = appSettingsState.availableUpdate,
-                        config = settingsState.draft,
+                        config = settingsState.providerDraft,
                         isTestingConnection = settingsState.isTestingConnection,
                         testMessage = settingsState.testMessage,
+                        promptConfig = settingsState.promptDraft,
+                        promptMessage = settingsState.promptMessage,
                         tokenUsage = aiState.tokenUsage,
                         hasUnsavedAiConfig = settingsState.hasUnsavedChanges,
                         runtimeLogText = runtimeLogText,
+                        quickImportState = homeState.importState,
                         onThemeColorChange = aiSettingsViewModel::saveThemeColor,
                         onCheckUpdates = { appSettingsViewModel.checkForUpdates(showUpToDateMessage = true) },
                         onExportData = { exportLauncher.launch("fra-workout-export.json") },
+                        onPickImportFile = { importLauncher.launch(arrayOf("application/json", "text/*", "*/*")) },
+                        onConfirmQuickImport = homeViewModel::confirmQuickImport,
+                        onClearQuickImportState = homeViewModel::clearQuickImportState,
                         onRefreshLogs = {
                             scope.launch { runtimeLogText = AppLogger.read() }
                         },
@@ -240,6 +275,10 @@ private fun FitnessRecordApp(
                         onBaseUrlChange = aiSettingsViewModel::updateBaseUrl,
                         onApiKeyChange = aiSettingsViewModel::updateApiKey,
                         onModelChange = aiSettingsViewModel::updateModel,
+                        onPromptPresetChange = aiSettingsViewModel::updatePromptPreset,
+                        onUseCustomPromptChange = aiSettingsViewModel::updateUseCustomPrompt,
+                        onCustomPromptChange = aiSettingsViewModel::updateCustomPrompt,
+                        onRestoreDefaultPrompt = aiSettingsViewModel::restoreDefaultPrompt,
                         onTestConnection = aiSettingsViewModel::testConnection,
                         onSave = aiSettingsViewModel::save,
                         onClear = aiSettingsViewModel::clear
@@ -250,6 +289,12 @@ private fun FitnessRecordApp(
     }
 }
 private const val BACK_EXIT_INTERVAL_MS = 2_000L
+
+private fun Cursor.fileSizeOrNull(): Long? {
+    val sizeIndex = getColumnIndex(OpenableColumns.SIZE)
+    if (sizeIndex == -1 || !moveToFirst()) return null
+    return if (isNull(sizeIndex)) null else getLong(sizeIndex)
+}
 
 
 

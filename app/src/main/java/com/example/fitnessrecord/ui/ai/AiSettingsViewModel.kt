@@ -4,7 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fitnessrecord.data.remote.OpenAiCompatibleApiService
 import com.example.fitnessrecord.data.settings.SettingsRepository
+import com.example.fitnessrecord.model.AiAdvicePromptConfig
+import com.example.fitnessrecord.model.AiAdvicePromptPreset
 import com.example.fitnessrecord.model.AiProviderConfig
+import com.example.fitnessrecord.model.MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS
+import com.example.fitnessrecord.model.normalizeAiAdvicePromptConfig
 import com.example.fitnessrecord.util.AppLogger
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +26,16 @@ class AiSettingsViewModel(
     init {
         viewModelScope.launch {
             settingsRepository.aiProviderConfig.collect { config ->
-                _uiState.value = _uiState.value.copy(config = config, draft = config)
+                _uiState.value = _uiState.value.copy(providerConfig = config, providerDraft = config)
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.aiAdvicePromptConfig.collect { config ->
+                _uiState.value = _uiState.value.copy(
+                    promptConfig = config,
+                    promptDraft = config,
+                    promptMessage = null
+                )
             }
         }
         viewModelScope.launch {
@@ -33,32 +46,44 @@ class AiSettingsViewModel(
     }
 
     fun updateProvider(value: String) {
-        updateDraft { it.copy(provider = value) }
+        updateProviderDraft { it.copy(provider = value) }
     }
 
     fun updateBaseUrl(value: String) {
-        updateDraft { it.copy(baseUrl = value) }
+        updateProviderDraft { it.copy(baseUrl = value) }
     }
 
     fun updateApiKey(value: String) {
-        updateDraft { it.copy(apiKey = value) }
+        updateProviderDraft { it.copy(apiKey = value) }
     }
 
     fun updateModel(value: String) {
-        updateDraft { it.copy(model = value) }
+        updateProviderDraft { it.copy(model = value) }
+    }
+
+    fun updatePromptPreset(preset: AiAdvicePromptPreset) {
+        updatePromptDraft { it.copy(selectedPresetKey = preset.key) }
+    }
+
+    fun updateUseCustomPrompt(value: Boolean) {
+        updatePromptDraft { it.copy(useCustomPrompt = value) }
+    }
+
+    fun updateCustomPrompt(value: String) {
+        updatePromptDraft { it.copy(customPrompt = value) }
     }
 
     fun testConnection() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isTestingConnection = true, testMessage = null)
-            val draft = _uiState.value.draft
+            val draft = _uiState.value.providerDraft
             AppLogger.i("AiSettings", "Testing AI connection. baseUrl=${draft.baseUrl}, provider=${draft.provider}, model=${draft.model}")
             runCatching { withTimeout(40_000) { OpenAiCompatibleApiService(draft).testConnection() } }
                 .onSuccess { message ->
                     settingsRepository.saveAiProviderConfig(draft)
                     _uiState.value = _uiState.value.copy(
-                        config = draft,
-                        draft = draft,
+                        providerConfig = draft,
+                        providerDraft = draft,
                         isTestingConnection = false,
                         testMessage = AiConnectionTestMessage(isSuccess = true, text = "$message\n配置已保存，AI 建议会使用当前大模型。")
                     )
@@ -79,14 +104,32 @@ class AiSettingsViewModel(
 
     fun save() {
         viewModelScope.launch {
-            val draft = _uiState.value.draft
-            settingsRepository.saveAiProviderConfig(draft)
+            val providerDraft = _uiState.value.providerDraft
+            val promptDraft = normalizeAiAdvicePromptConfig(_uiState.value.promptDraft)
+            if (promptDraft.customPrompt.length > MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS) {
+                _uiState.value = _uiState.value.copy(
+                    promptMessage = AiConnectionTestMessage(
+                        isSuccess = false,
+                        text = "自定义提示词不能超过 $MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS 字。"
+                    )
+                )
+                return@launch
+            }
+            val promptChanged = promptDraft != _uiState.value.promptConfig
+            settingsRepository.saveAiProviderConfig(providerDraft)
+            settingsRepository.saveAiAdvicePromptConfig(promptDraft)
+            if (promptChanged) {
+                settingsRepository.clearAiAdviceCache()
+            }
             _uiState.value = _uiState.value.copy(
-                config = draft,
-                draft = draft,
-                testMessage = AiConnectionTestMessage(isSuccess = true, text = "配置已保存，AI 建议会使用当前大模型。")
+                providerConfig = providerDraft,
+                providerDraft = providerDraft,
+                promptConfig = promptDraft,
+                promptDraft = promptDraft,
+                testMessage = AiConnectionTestMessage(isSuccess = true, text = "配置已保存，AI 建议会使用当前大模型。"),
+                promptMessage = null
             )
-            AppLogger.i("AiSettings", "AI provider config saved manually. model=${draft.model}")
+            AppLogger.i("AiSettings", "AI provider config saved manually. model=${providerDraft.model}, promptPreset=${promptDraft.selectedPresetKey}, useCustomPrompt=${promptDraft.useCustomPrompt}")
         }
     }
 
@@ -94,11 +137,25 @@ class AiSettingsViewModel(
         viewModelScope.launch {
             settingsRepository.clearAiProviderConfig()
             _uiState.value = _uiState.value.copy(
-                config = AiProviderConfig(),
-                draft = AiProviderConfig(),
+                providerConfig = AiProviderConfig(),
+                providerDraft = AiProviderConfig(),
                 testMessage = AiConnectionTestMessage(isSuccess = true, text = "配置已清除，将使用本地 Mock 建议。")
             )
             AppLogger.i("AiSettings", "AI provider config cleared")
+        }
+    }
+
+    fun restoreDefaultPrompt() {
+        viewModelScope.launch {
+            val defaultConfig = AiAdvicePromptConfig()
+            settingsRepository.saveAiAdvicePromptConfig(defaultConfig)
+            settingsRepository.clearAiAdviceCache()
+            _uiState.value = _uiState.value.copy(
+                promptConfig = defaultConfig,
+                promptDraft = defaultConfig,
+                promptMessage = AiConnectionTestMessage(isSuccess = true, text = "AI 建议提示词已恢复默认。")
+            )
+            AppLogger.i("AiSettings", "AI advice prompt config restored to default")
         }
     }
 
@@ -108,22 +165,32 @@ class AiSettingsViewModel(
         }
     }
 
-    private fun updateDraft(update: (AiProviderConfig) -> AiProviderConfig) {
+    private fun updateProviderDraft(update: (AiProviderConfig) -> AiProviderConfig) {
         _uiState.value = _uiState.value.copy(
-            draft = update(_uiState.value.draft),
+            providerDraft = update(_uiState.value.providerDraft),
             testMessage = null
+        )
+    }
+
+    private fun updatePromptDraft(update: (AiAdvicePromptConfig) -> AiAdvicePromptConfig) {
+        _uiState.value = _uiState.value.copy(
+            promptDraft = update(_uiState.value.promptDraft),
+            promptMessage = null
         )
     }
 }
 
 data class AiSettingsUiState(
-    val config: AiProviderConfig = AiProviderConfig(),
-    val draft: AiProviderConfig = AiProviderConfig(),
+    val providerConfig: AiProviderConfig = AiProviderConfig(),
+    val providerDraft: AiProviderConfig = AiProviderConfig(),
+    val promptConfig: AiAdvicePromptConfig = AiAdvicePromptConfig(),
+    val promptDraft: AiAdvicePromptConfig = AiAdvicePromptConfig(),
     val themeColorKey: String = "green",
     val isTestingConnection: Boolean = false,
     val testMessage: AiConnectionTestMessage? = null,
+    val promptMessage: AiConnectionTestMessage? = null,
 ) {
-    val hasUnsavedChanges: Boolean = draft != config
+    val hasUnsavedChanges: Boolean = providerDraft != providerConfig || promptDraft != promptConfig
 }
 
 data class AiConnectionTestMessage(

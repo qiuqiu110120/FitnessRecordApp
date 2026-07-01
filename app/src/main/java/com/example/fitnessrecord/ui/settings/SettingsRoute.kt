@@ -16,19 +16,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Article
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.WifiTethering
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -42,7 +47,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,16 +61,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.AppVersion
+import com.example.fitnessrecord.data.importer.quickImportAiPrompt
+import com.example.fitnessrecord.data.importer.quickImportExampleJson
 import com.example.fitnessrecord.data.repository.AppRelease
+import com.example.fitnessrecord.model.AiAdvicePromptConfig
+import com.example.fitnessrecord.model.AiAdvicePromptPreset
 import com.example.fitnessrecord.model.AiProviderConfig
 import com.example.fitnessrecord.model.AiTokenUsage
+import com.example.fitnessrecord.model.MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS
+import com.example.fitnessrecord.model.QuickImportPreview
+import com.example.fitnessrecord.model.QuickImportResult
 import com.example.fitnessrecord.ui.ai.AiConnectionTestMessage
 import com.example.fitnessrecord.ui.ai.ConnectionTestMessageCard
 import com.example.fitnessrecord.ui.ai.TokenUsageSettingsCard
+import com.example.fitnessrecord.ui.home.QuickImportUiState
 import com.example.fitnessrecord.ui.theme.ThemeColorOptions
 import com.example.fitnessrecord.ui.theme.isCustomThemeColor
 import com.example.fitnessrecord.ui.theme.normalizeThemeColorInput
@@ -76,7 +94,7 @@ private enum class SettingsSection(val title: String) {
     Home("设置"),
     Theme("主题配色"),
     AiModel("大模型配置"),
-    Export("数据导出"),
+    Export("数据管理"),
     Version("版本信息"),
 }
 
@@ -90,12 +108,18 @@ fun SettingsRoute(
     config: AiProviderConfig,
     isTestingConnection: Boolean,
     testMessage: AiConnectionTestMessage?,
+    promptConfig: AiAdvicePromptConfig,
+    promptMessage: AiConnectionTestMessage?,
     tokenUsage: AiTokenUsage?,
     runtimeLogText: String,
     hasUnsavedAiConfig: Boolean,
+    quickImportState: QuickImportUiState,
     onThemeColorChange: (String) -> Unit,
     onCheckUpdates: () -> Unit,
     onExportData: () -> Unit,
+    onPickImportFile: () -> Unit,
+    onConfirmQuickImport: () -> Unit,
+    onClearQuickImportState: () -> Unit,
     onRefreshLogs: () -> Unit,
     onClearLogs: () -> Unit,
     onExportLogs: () -> Unit,
@@ -103,6 +127,10 @@ fun SettingsRoute(
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
+    onPromptPresetChange: (AiAdvicePromptPreset) -> Unit,
+    onUseCustomPromptChange: (Boolean) -> Unit,
+    onCustomPromptChange: (String) -> Unit,
+    onRestoreDefaultPrompt: () -> Unit,
     onTestConnection: () -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
@@ -151,12 +179,18 @@ fun SettingsRoute(
                 config = config,
                 isTestingConnection = isTestingConnection,
                 testMessage = testMessage,
+                promptConfig = promptConfig,
+                promptMessage = promptMessage,
                 tokenUsage = tokenUsage,
                 onProviderChange = onProviderChange,
                 hasUnsavedAiConfig = hasUnsavedAiConfig,
                 onBaseUrlChange = onBaseUrlChange,
                 onApiKeyChange = onApiKeyChange,
                 onModelChange = onModelChange,
+                onPromptPresetChange = onPromptPresetChange,
+                onUseCustomPromptChange = onUseCustomPromptChange,
+                onCustomPromptChange = onCustomPromptChange,
+                onRestoreDefaultPrompt = onRestoreDefaultPrompt,
                 onTestConnection = onTestConnection,
                 onSave = onSave,
                 onClear = onClear
@@ -164,8 +198,12 @@ fun SettingsRoute(
 
             SettingsSection.Export -> ExportDataScreen(
                 innerPadding = contentPadding,
-                onExportData = onExportData
-            )
+                quickImportState = quickImportState,
+                onExportData = onExportData,
+                onPickImportFile = onPickImportFile,
+                onConfirmQuickImport = onConfirmQuickImport,
+                onClearQuickImportState = onClearQuickImportState
+            )
             SettingsSection.Version -> VersionInfoScreen(
                 innerPadding = contentPadding,
                 updateCheckState = updateCheckState,
@@ -217,8 +255,8 @@ private fun SettingsHomeScreen(
         }
         item {
             SettingsEntryCard(
-                title = "数据导出",
-                subtitle = "导出训练记录 JSON 文件",
+                title = "数据管理",
+                subtitle = "导出备份、导入 JSON、查看示例",
                 icon = Icons.Outlined.FileDownload,
                 onClick = onOpenExport
             )
@@ -291,31 +329,323 @@ private fun IconBadge(icon: ImageVector) {
 @Composable
 private fun ExportDataScreen(
     innerPadding: PaddingValues,
+    quickImportState: QuickImportUiState,
     onExportData: () -> Unit,
+    onPickImportFile: () -> Unit,
+    onConfirmQuickImport: () -> Unit,
+    onClearQuickImportState: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text("导出健身数据", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = "导出为 JSON 文件，包含训练日期、类型、时长、备注、动作、组数、次数和重量。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onExportData
+    val clipboard = LocalClipboardManager.current
+    val exampleJson = quickImportExampleJson()
+    val aiPrompt = quickImportAiPrompt()
+    var showExample by rememberSaveable { mutableStateOf(false) }
+    var showPrompt by rememberSaveable { mutableStateOf(false) }
+
+    QuickImportStateDialogs(
+        state = quickImportState,
+        onConfirmQuickImport = onConfirmQuickImport,
+        onClearQuickImportState = onClearQuickImportState
+    )
+
+    if (showExample) {
+        TextContentDialog(
+            title = "导入示例 JSON",
+            text = exampleJson,
+            onCopy = { clipboard.setText(AnnotatedString(exampleJson)) },
+            onDismiss = { showExample = false }
+        )
+    }
+    if (showPrompt) {
+        TextContentDialog(
+            title = "AI 整理提示词",
+            text = aiPrompt,
+            onCopy = { clipboard.setText(AnnotatedString(aiPrompt)) },
+            onDismiss = { showPrompt = false }
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            DataManagementCard(
+                title = "导出数据",
+                description = "导出为完整 JSON 文件，适合备份当前训练记录。导入前建议先导出一份备份。",
+                primaryButtonText = "导出 JSON",
+                primaryIcon = Icons.Outlined.FileDownload,
+                onPrimaryClick = onExportData
+            )
+        }
+        item {
+            DataManagementCard(
+                title = "导入 JSON",
+                description = "仅支持快速导入格式。导入会追加训练记录，不覆盖、不删除、不自动合并。文件超过 5MB 时请拆分后导入。",
+                primaryButtonText = "选择 JSON 文件",
+                primaryIcon = Icons.Outlined.FileUpload,
+                onPrimaryClick = onPickImportFile,
+                isLoading = quickImportState.isLoading
+            )
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Outlined.FileDownload, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("导出 JSON")
+                    Text("导入示例", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "示例严格符合第一版校验规则。sets 中每一组至少需要 reps、durationSeconds、distanceKm 之一，weightKg 不能单独作为有效训练数据。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FieldDescriptionText()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = { showExample = true }
+                        ) {
+                            Icon(Icons.Outlined.Article, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("查看示例")
+                        }
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = { clipboard.setText(AnnotatedString(exampleJson)) }
+                        ) {
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("复制示例")
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("AI 整理提示词", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "复制提示词给 AI，再把你的杂乱训练记录粘贴到最后。AI 输出的 JSON 仍会经过校验、预览和确认。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = { showPrompt = true }
+                        ) {
+                            Icon(Icons.Outlined.Article, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("查看提示词")
+                        }
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = { clipboard.setText(AnnotatedString(aiPrompt)) }
+                        ) {
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("复制提示词")
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun DataManagementCard(
+    title: String,
+    description: String,
+    primaryButtonText: String,
+    primaryIcon: ImageVector,
+    onPrimaryClick: () -> Unit,
+    isLoading: Boolean = false,
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onPrimaryClick,
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(primaryIcon, contentDescription = null)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(if (isLoading) "正在处理" else primaryButtonText)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FieldDescriptionText() {
+    Text(
+        text = """
+date：训练日期，格式 YYYY-MM-DD，必须是真实日期，必填
+title：训练标题，可选
+notes：备注，可选
+name：动作名称，必填
+sets：训练组，必填且非空
+weightKg：重量，单位 kg，可选，允许 0 或正数
+reps：次数，可选，必须是正整数
+durationSeconds：时长，单位秒，可选，必须是正数
+distanceKm：距离，单位公里，可选，必须是正数
+        """.trimIndent(),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun QuickImportStateDialogs(
+    state: QuickImportUiState,
+    onConfirmQuickImport: () -> Unit,
+    onClearQuickImportState: () -> Unit,
+) {
+    val errors = state.errors
+    if (errors.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = onClearQuickImportState,
+            title = { Text("导入文件有错误") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    errors.take(8).forEach { Text(it) }
+                    if (errors.size > 8) {
+                        Text("还有 ${errors.size - 8} 条错误，请修正后再导入。")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onClearQuickImportState) {
+                    Text("知道了")
+                }
+            }
+        )
+    }
+
+    val preview = state.preview
+    if (preview != null) {
+        AlertDialog(
+            onDismissRequest = onClearQuickImportState,
+            title = { Text("确认导入") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(preview.summaryText())
+                    Text("导入会追加训练记录，建议导入前先导出当前数据备份。")
+                    preview.warnings.forEach { warning ->
+                        Text("提示：$warning", color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = onConfirmQuickImport,
+                    enabled = !state.isLoading
+                ) {
+                    Text(if (state.isLoading) "导入中" else "确认导入")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = onClearQuickImportState,
+                    enabled = !state.isLoading
+                ) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    val result = state.result
+    if (result != null) {
+        AlertDialog(
+            onDismissRequest = onClearQuickImportState,
+            title = { Text("导入成功") },
+            text = { Text(result.summaryText()) },
+            confirmButton = {
+                TextButton(onClick = onClearQuickImportState) {
+                    Text("完成")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun TextContentDialog(
+    title: String,
+    text: String,
+    onCopy: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Text(
+                text = text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onCopy) {
+                Text("复制")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
+}
+
+private fun QuickImportPreview.summaryText(): String = buildString {
+    appendLine("将新增训练 $workoutCount 次")
+    appendLine("将新增动作 $newActionCount 个")
+    appendLine("将新增训练组 $setCount 组")
+    append("发现同日期训练记录 $existingDateCount 条")
+}
+
+private fun QuickImportResult.summaryText(): String = buildString {
+    appendLine("新增训练 $workoutCount 次")
+    appendLine("新增动作 $newActionCount 个")
+    appendLine("新增训练组 $setCount 组")
+    append("其中包含同日期训练记录 $existingDateCount 条")
 }
 
 @Composable
@@ -409,12 +739,18 @@ private fun AiModelSettingsScreen(
     config: AiProviderConfig,
     isTestingConnection: Boolean,
     testMessage: AiConnectionTestMessage?,
+    promptConfig: AiAdvicePromptConfig,
+    promptMessage: AiConnectionTestMessage?,
     tokenUsage: AiTokenUsage?,
     onProviderChange: (String) -> Unit,
     hasUnsavedAiConfig: Boolean,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
+    onPromptPresetChange: (AiAdvicePromptPreset) -> Unit,
+    onUseCustomPromptChange: (Boolean) -> Unit,
+    onCustomPromptChange: (String) -> Unit,
+    onRestoreDefaultPrompt: () -> Unit,
     onTestConnection: () -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
@@ -433,6 +769,16 @@ private fun AiModelSettingsScreen(
                 onBaseUrlChange = onBaseUrlChange,
                 onApiKeyChange = onApiKeyChange,
                 onModelChange = onModelChange
+            )
+        }
+        item {
+            AiAdvicePromptSettingsCard(
+                config = promptConfig,
+                message = promptMessage,
+                onPresetChange = onPromptPresetChange,
+                onUseCustomPromptChange = onUseCustomPromptChange,
+                onCustomPromptChange = onCustomPromptChange,
+                onRestoreDefaultPrompt = onRestoreDefaultPrompt
             )
         }
         if (hasUnsavedAiConfig) {
@@ -490,6 +836,140 @@ private fun AiModelSettingsScreen(
 }
 
 @Composable
+private fun AiAdvicePromptSettingsCard(
+    config: AiAdvicePromptConfig,
+    message: AiConnectionTestMessage?,
+    onPresetChange: (AiAdvicePromptPreset) -> Unit,
+    onUseCustomPromptChange: (Boolean) -> Unit,
+    onCustomPromptChange: (String) -> Unit,
+    onRestoreDefaultPrompt: () -> Unit,
+) {
+    var showRestoreConfirm by rememberSaveable { mutableStateOf(false) }
+    val selectedPreset = config.selectedPreset
+    val trimmedCustomLength = config.customPrompt.trim().length
+    val customPromptTooLong = trimmedCustomLength > MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS
+
+    if (showRestoreConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = { Text("恢复默认提示词") },
+            text = { Text("将清空自定义提示词、关闭自定义开关，并切回通用训练建议。是否继续？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRestoreConfirm = false
+                        onRestoreDefaultPrompt()
+                    }
+                ) {
+                    Text("恢复")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("AI 建议提示词", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "第一版作为全局配置，所有 AI 训练建议都会使用这里的建议偏好。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "系统会自动加入基础安全约束，确保建议基于训练记录生成，不做医疗诊断。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "预设提示词：${selectedPreset.label}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(AiAdvicePromptPreset.entries, key = { it.key }) { preset ->
+                    FilterChip(
+                        selected = selectedPreset == preset,
+                        onClick = { onPresetChange(preset) },
+                        enabled = !config.useCustomPrompt,
+                        label = { Text(preset.label) }
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("使用自定义提示词", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "自定义只影响建议偏好，不会覆盖系统安全约束。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = config.useCustomPrompt,
+                    onCheckedChange = onUseCustomPromptChange
+                )
+            }
+            if (config.useCustomPrompt) {
+                Text(
+                    text = "自定义为空时将使用：${selectedPreset.label}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = config.customPrompt,
+                    onValueChange = onCustomPromptChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("建议偏好提示词") },
+                    placeholder = { Text(selectedPreset.prompt) },
+                    minLines = 5,
+                    maxLines = 8,
+                    isError = customPromptTooLong,
+                    supportingText = {
+                        Text(
+                            if (customPromptTooLong) {
+                                "保存前去除前后空格后为 $trimmedCustomLength/$MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS 字，请缩短内容。"
+                            } else {
+                                "$trimmedCustomLength/$MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS 字，保存时会自动去除前后空格。"
+                            }
+                        )
+                    }
+                )
+            }
+            Text(
+                text = "生成 AI 建议时，系统会将必要的训练记录发送给你配置的大模型服务，请确认你信任该服务及其隐私政策。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { showRestoreConfirm = true }
+            ) {
+                Icon(Icons.Outlined.Refresh, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("恢复默认提示词")
+            }
+            if (message != null) {
+                ConnectionTestMessageCard(message)
+            }
+        }
+    }
+}
+
+@Composable
 private fun UnsavedAiConfigCard() {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
         Column(
@@ -497,12 +977,12 @@ private fun UnsavedAiConfigCard() {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = "配置尚未保存",
+                text = "AI 配置尚未保存",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
             Text(
-                text = "你修改了大模型配置，但 AI 建议仍会使用上一次保存的配置。请点击保存，或点击测试连通性并通过后自动保存。",
+                text = "你修改了大模型或提示词配置，但 AI 建议仍会使用上一次保存的配置。请点击保存；测试连通性通过后只会自动保存大模型连接配置。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )

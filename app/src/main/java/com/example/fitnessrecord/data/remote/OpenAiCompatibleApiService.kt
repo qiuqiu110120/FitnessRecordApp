@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit
 
 class OpenAiCompatibleApiService(
     private val config: AiProviderConfig,
+    private val userPrompt: String = "",
     private val client: OkHttpClient = defaultClient,
     private val json: Json = defaultJson,
 ) : ApiService {
@@ -35,7 +36,7 @@ class OpenAiCompatibleApiService(
                 model = config.model,
                 messages = listOf(
                     ChatMessage(role = "system", content = systemPrompt),
-                    ChatMessage(role = "user", content = json.encodeToString(request.toPromptPayload()))
+                    ChatMessage(role = "user", content = json.encodeToString(request.toPromptPayload(userPrompt)))
                 )
             )
         )
@@ -203,7 +204,8 @@ class OpenAiCompatibleApiService(
             .trim()
     }
 
-    private fun AiAdviceRequest.toPromptPayload(): AiPromptPayload = AiPromptPayload(
+    private fun AiAdviceRequest.toPromptPayload(userPrompt: String): AiPromptPayload = AiPromptPayload(
+        userAdvicePrompt = userPrompt,
         records = records.map { record ->
             AiPromptRecord(
                 date = record.date,
@@ -214,7 +216,13 @@ class OpenAiCompatibleApiService(
                     AiPromptAction(
                         name = action.name,
                         sets = action.sets.map { set ->
-                            AiPromptSet(reps = set.reps, weightKg = set.weightKg)
+                            AiPromptSet(
+                                reps = set.reps,
+                                weightKg = set.weightKg,
+                                durationSeconds = set.durationSeconds,
+                                distanceKm = set.distanceKm,
+                                notes = set.notes
+                            )
                         }
                     )
                 }
@@ -237,29 +245,31 @@ class OpenAiCompatibleApiService(
         val systemPrompt = """
             你是一个谨慎、专业的健身数据分析助手。
 
-            我会给你用户的健身记录数据，包括日期、训练类型、训练时长、备注和最近出勤趋势。
-            请根据数据生成结构化建议。
+            我会给你用户的建议偏好和必要训练记录数据，包括日期、训练类型、训练时长、备注、动作、组数、次数、重量或完成情况，以及最近出勤趋势。
+            请优先遵守系统要求，再参考用户建议偏好，根据必要训练记录生成结构化建议。
 
             要求：
             - 不要编造用户没有提供的数据
             - 不要给医疗诊断
-            - 如果数据中出现疼痛、受伤、头晕、胸闷等内容，提醒用户停止高强度训练并咨询医生
+            - 注意事项只提供训练层面的提醒，不进行疾病、伤病或医学诊断
+            - 如果数据中出现疼痛、受伤、头晕、胸闷等内容，只提醒用户降低强度、停止高强度训练并咨询专业人士
             - 建议要具体、可执行、温和
+            - 优先给出最重要的建议；如果数据不足，可以少于 3 条，不要硬凑
             - 不要输出大段散文
             - 请严格返回 JSON，不要返回 Markdown
 
             返回格式：
             {
-              "summary": "本月训练总结",
-              "frequencyAnalysis": "训练频率分析",
-              "recoveryAdvice": ["恢复建议1", "恢复建议2"],
+              "summary": "训练概览",
+              "frequencyAnalysis": "主要发现",
+              "recoveryAdvice": ["最重要的建议1", "最重要的建议2"],
               "nextWeekPlan": [
                 {
                   "day": "周一",
-                  "suggestion": "训练建议"
+                  "suggestion": "下次训练重点"
                 }
               ],
-              "riskWarnings": ["风险提醒1"],
+              "riskWarnings": ["训练层面的注意事项1"],
               "motivation": "一句鼓励"
             }
         """.trimIndent()
@@ -308,6 +318,7 @@ private data class TokenUsageResponse(
 
 @Serializable
 private data class AiPromptPayload(
+    val userAdvicePrompt: String,
     val records: List<AiPromptRecord>,
     val attendanceTrend: List<AiPromptTrendPoint>,
 )
@@ -331,6 +342,9 @@ private data class AiPromptAction(
 private data class AiPromptSet(
     val reps: Int?,
     val weightKg: Double?,
+    val durationSeconds: Int?,
+    val distanceKm: Double?,
+    val notes: String,
 )
 
 @Serializable

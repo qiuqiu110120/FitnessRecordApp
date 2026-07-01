@@ -12,13 +12,17 @@ import com.example.fitnessrecord.model.AttendancePoint
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
 import com.example.fitnessrecord.model.DEFAULT_CUSTOM_ACTION_FOLDER_ID
+import com.example.fitnessrecord.model.QuickImportPlan
+import com.example.fitnessrecord.model.QuickImportPreview
+import com.example.fitnessrecord.model.QuickImportResult
+import com.example.fitnessrecord.model.QuickImportWorkout
 import com.example.fitnessrecord.model.TrendMode
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import java.time.DayOfWeek
@@ -63,12 +67,7 @@ class DefaultWorkoutRepository(
         val now = System.currentTimeMillis()
         val validActions = day.actions
             .mapIndexed { index, action -> index to action }
-            .filter { (_, action) -> action.name.isNotBlank() || action.sets.isNotEmpty() }
-
-        if (validActions.isEmpty()) {
-            workoutDao.deleteWorkoutDay(day.date)
-            return
-        }
+            .filter { (_, action) -> action.name.isNotBlank() }
 
         workoutDao.replaceWorkoutDay(
             day = WorkoutDayEntity(
@@ -82,7 +81,7 @@ class DefaultWorkoutRepository(
             actions = validActions.mapIndexed { sortOrder, (_, action) ->
                 WorkoutActionEntity(
                     dateEpochDay = day.date.toEpochDay(),
-                    name = action.name.ifBlank { "未命名动作" },
+                    name = action.name.trim(),
                     sortOrder = sortOrder,
                     syncStatus = SyncStatus.PENDING_UPLOAD.name,
                     updatedAt = now
@@ -95,6 +94,9 @@ class DefaultWorkoutRepository(
                         setOrder = setOrder,
                         reps = set.reps,
                         weightKg = set.weightKg,
+                        durationSeconds = set.durationSeconds,
+                        distanceKm = set.distanceKm,
+                        notes = set.notes.trim(),
                         syncStatus = SyncStatus.PENDING_UPLOAD.name,
                         updatedAt = now
                     )
@@ -177,6 +179,109 @@ class DefaultWorkoutRepository(
         workoutDao.deleteCustomAction(id)
     }
 
+    override suspend fun previewQuickImport(workouts: List<QuickImportWorkout>): QuickImportPlan {
+        val existingDates = observeRecordDates().first()
+        val actions = observeCustomActions().first()
+        val folders = observeCustomActionFolders().first()
+        val defaultFolderId = folders.firstOrNull { it.isDefault }?.id ?: DEFAULT_CUSTOM_ACTION_FOLDER_ID
+        val uniqueMissingNames = workouts
+            .flatMap { it.exercises }
+            .map { it.name.normalizedActionName() to it.name }
+            .distinctBy { it.first }
+            .filter { (normalizedName, _) -> actions.none { it.name.normalizedActionName() == normalizedName } }
+        val ambiguousNames = workouts
+            .flatMap { it.exercises }
+            .map { it.name.normalizedActionName() to it.name }
+            .distinctBy { it.first }
+            .filter { (normalizedName, _) ->
+                val matches = actions.filter { it.name.normalizedActionName() == normalizedName }
+                matches.size > 1 && matches.count { it.folderId == defaultFolderId } != 1
+            }
+        val sameDateCount = workouts.count { it.date in existingDates }
+        val warnings = buildList {
+            if (sameDateCount > 0) {
+                add("发现同日期训练记录 $sameDateCount 条，确认后会追加到对应日期。")
+            }
+            ambiguousNames.forEach { (_, name) ->
+                add("动作“$name”存在多个同名模板，导入时仅保存动作名称快照。")
+            }
+        }
+        return QuickImportPlan(
+            workouts = workouts,
+            preview = QuickImportPreview(
+                workoutCount = workouts.size,
+                existingDateCount = sameDateCount,
+                setCount = workouts.sumOf { workout -> workout.exercises.sumOf { it.sets.size } },
+                newActionCount = uniqueMissingNames.size,
+                ambiguousActionCount = ambiguousNames.size,
+                warnings = warnings
+            )
+        )
+    }
+
+    override suspend fun importQuickWorkouts(plan: QuickImportPlan): QuickImportResult {
+        val now = System.currentTimeMillis()
+        val existingActions = observeCustomActions().first()
+        val missingActionNames = plan.workouts
+            .flatMap { it.exercises }
+            .map { it.name.normalizedActionName() to it.name }
+            .distinctBy { it.first }
+            .filter { (normalizedName, _) -> existingActions.none { it.name.normalizedActionName() == normalizedName } }
+            .map { (_, name) -> name }
+
+        val days = plan.workouts.map { workout ->
+            WorkoutDayEntity(
+                dateEpochDay = workout.date.toEpochDay(),
+                trainingType = workout.title.orEmpty().ifBlank { "快速导入" },
+                notes = workout.notes.orEmpty(),
+                syncStatus = SyncStatus.PENDING_UPLOAD.name,
+                updatedAt = now
+            )
+        }
+        val actions = plan.workouts.map { workout ->
+            workout.exercises.mapIndexed { index, exercise ->
+                WorkoutActionEntity(
+                    dateEpochDay = workout.date.toEpochDay(),
+                    name = exercise.name,
+                    sortOrder = index,
+                    syncStatus = SyncStatus.PENDING_UPLOAD.name,
+                    updatedAt = now
+                )
+            }
+        }
+        val sets = plan.workouts.map { workout ->
+            workout.exercises.map { exercise ->
+                exercise.sets.mapIndexed { index, set ->
+                    WorkoutSetEntity(
+                        actionId = 0,
+                        setOrder = index,
+                        reps = set.reps,
+                        weightKg = set.weightKg,
+                        durationSeconds = set.durationSeconds,
+                        distanceKm = set.distanceKm,
+                        notes = set.notes.trim(),
+                        syncStatus = SyncStatus.PENDING_UPLOAD.name,
+                        updatedAt = now
+                    )
+                }
+            }
+        }
+
+        val newActionCount = workoutDao.importQuickWorkoutDays(
+            now = now,
+            days = days,
+            actions = actions,
+            setsByWorkoutAction = sets,
+            missingActionNames = missingActionNames
+        )
+        return QuickImportResult(
+            workoutCount = plan.preview.workoutCount,
+            setCount = plan.preview.setCount,
+            newActionCount = newActionCount,
+            existingDateCount = plan.preview.existingDateCount
+        )
+    }
+
     private fun WorkoutDayWithActions.toModel(): WorkoutDay = WorkoutDay(
         date = LocalDate.ofEpochDay(day.dateEpochDay),
         trainingType = day.trainingType,
@@ -189,7 +294,14 @@ class DefaultWorkoutRepository(
                     id = actionWithSets.action.id,
                     name = actionWithSets.action.name,
                     sets = actionWithSets.sets.sortedBy { it.setOrder }.map {
-                        WorkoutSet(id = it.id, reps = it.reps, weightKg = it.weightKg)
+                        WorkoutSet(
+                            id = it.id,
+                            reps = it.reps,
+                            weightKg = it.weightKg,
+                            durationSeconds = it.durationSeconds,
+                            distanceKm = it.distanceKm,
+                            notes = it.notes
+                        )
                     }
                 )
             }

@@ -42,14 +42,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
-import com.example.fitnessrecord.model.WorkoutAction
-import com.example.fitnessrecord.model.WorkoutDay
-import com.example.fitnessrecord.model.WorkoutSet
 
 @Composable
 fun WorkoutEditorScreen(
     innerPadding: PaddingValues,
-    day: WorkoutDay,
+    day: WorkoutEditorDraft,
+    saveStatus: EditorSaveStatus,
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
     customActions: List<CustomAction>,
@@ -66,6 +64,7 @@ fun WorkoutEditorScreen(
     onSetChange: (Long, Long, String, String) -> Unit,
     onDeleteSet: (Long, Long) -> Unit,
     onSave: () -> Unit,
+    onRetrySave: () -> Unit,
     onClearMessage: () -> Unit,
 ) {
     LazyColumn(
@@ -78,6 +77,15 @@ fun WorkoutEditorScreen(
         if (message != null) {
             item(key = "message", contentType = "message") {
                 MessageCard(message = message, onClear = onClearMessage)
+            }
+        }
+
+        if (saveStatus.visibleMessage != null) {
+            item(key = "save-status", contentType = "save-status") {
+                SaveStatusCard(
+                    status = saveStatus,
+                    onRetry = onRetrySave
+                )
             }
         }
 
@@ -161,8 +169,36 @@ private fun MessageCard(
 }
 
 @Composable
+private fun SaveStatusCard(
+    status: EditorSaveStatus,
+    onRetry: () -> Unit,
+) {
+    val message = status.visibleMessage ?: return
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = message,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (status == EditorSaveStatus.SaveError) {
+                TextButton(onClick = onRetry) {
+                    Text("重试")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun WorkoutMetaCard(
-    day: WorkoutDay,
+    day: WorkoutEditorDraft,
     onTrainingTypeChange: (String) -> Unit,
     onDurationChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
@@ -181,7 +217,7 @@ private fun WorkoutMetaCard(
                 singleLine = true
             )
             OutlinedTextField(
-                value = day.durationMinutes?.toString().orEmpty(),
+                value = day.durationMinutes,
                 onValueChange = onDurationChange,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("训练时长（分钟）") },
@@ -198,6 +234,16 @@ private fun WorkoutMetaCard(
         }
     }
 }
+
+private val EditorSaveStatus.visibleMessage: String?
+    get() = when (this) {
+        EditorSaveStatus.Saving -> "保存中..."
+        EditorSaveStatus.Saved -> "已自动保存"
+        EditorSaveStatus.ValidationError -> "请先修正未完成或为空的输入"
+        EditorSaveStatus.SaveError -> "保存失败，点击重试"
+        EditorSaveStatus.Idle,
+        EditorSaveStatus.Editing -> null
+    }
 
 @Composable
 private fun WorkoutActionTitle() {
@@ -376,11 +422,11 @@ private fun EmptyWorkoutCard() {
 
 @Composable
 private fun WorkoutActionCard(
-    action: WorkoutAction,
+    action: WorkoutActionDraft,
     onNameChange: (String) -> Unit,
     onAddSet: () -> Unit,
-    onSetChange: (WorkoutSet, String, String) -> Unit,
-    onDeleteSet: (WorkoutSet) -> Unit,
+    onSetChange: (WorkoutSetDraft, String, String) -> Unit,
+    onDeleteSet: (WorkoutSetDraft) -> Unit,
     onDeleteAction: () -> Unit,
 ) {
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
@@ -425,15 +471,15 @@ private fun WorkoutActionCard(
                         style = MaterialTheme.typography.bodyMedium
                     )
                     OutlinedTextField(
-                        value = set.reps?.toString().orEmpty(),
-                        onValueChange = { onSetChange(set, it, set.weightKg?.toString().orEmpty()) },
+                        value = set.reps,
+                        onValueChange = { onSetChange(set, it, set.weightKg) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
                     OutlinedTextField(
-                        value = set.weightKg?.toString().orEmpty(),
-                        onValueChange = { onSetChange(set, set.reps?.toString().orEmpty(), it) },
+                        value = set.weightKg,
+                        onValueChange = { onSetChange(set, set.reps, it) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)

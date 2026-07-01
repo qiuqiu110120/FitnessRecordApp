@@ -91,14 +91,14 @@ fun HomeRoute(
         }
 
         uiState.editingDate != null && editorDraft != null -> {
-            BackHandler { viewModel.closeEditor() }
+            BackHandler { viewModel.requestCloseEditor() }
             Scaffold(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
                     TopAppBar(
                         title = { Text(editorDraft.date.format(editorTitleFormatter)) },
                         navigationIcon = {
-                            IconButton(onClick = viewModel::closeEditor) {
+                            IconButton(onClick = viewModel::requestCloseEditor) {
                                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
                             }
                         },
@@ -113,6 +113,7 @@ fun HomeRoute(
                 WorkoutEditorScreen(
                     innerPadding = editorPadding,
                     day = editorDraft,
+                    saveStatus = uiState.saveStatus,
                     folders = uiState.customActionFolders,
                     selectedFolderId = uiState.selectedActionFolderId,
                     customActions = uiState.customActions,
@@ -129,6 +130,7 @@ fun HomeRoute(
                     onSetChange = viewModel::updateSet,
                     onDeleteSet = viewModel::deleteSet,
                     onSave = viewModel::saveDraft,
+                    onRetrySave = viewModel::retrySave,
                     onClearMessage = viewModel::clearActionLibraryMessage
                 )
             }
@@ -278,7 +280,7 @@ private fun SelectedDateCard(
 
             day.actions.take(4).forEach { action ->
                 Text(
-                    text = "${action.name} · ${action.sets.size} 组",
+                    text = "${action.name} · ${action.sets.size} 组${action.sets.firstOrNull()?.summaryText()?.let { " · $it" }.orEmpty()}",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium
                 )
@@ -289,4 +291,17 @@ private fun SelectedDateCard(
 
 private val detailDateFormatter = DateTimeFormatter.ofPattern("yyyy 年 M 月 d 日 EEEE", Locale.CHINA)
 private val editorTitleFormatter = DateTimeFormatter.ofPattern("M 月 d 日训练", Locale.CHINA)
+
+private fun com.example.fitnessrecord.model.WorkoutSet.summaryText(): String {
+    val parts = listOfNotNull(
+        reps?.let { "${it} 次" },
+        weightKg?.let { "${it.cleanNumber()} kg" },
+        durationSeconds?.let { "${it} 秒" },
+        distanceKm?.let { "${it.cleanNumber()} km" }
+    )
+    return parts.joinToString(" / ")
+}
+
+private fun Double.cleanNumber(): String =
+    if (this % 1.0 == 0.0) toInt().toString() else toString()
 

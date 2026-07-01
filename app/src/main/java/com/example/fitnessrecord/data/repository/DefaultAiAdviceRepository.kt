@@ -13,6 +13,7 @@ import com.example.fitnessrecord.model.AiWorkoutRecord
 import com.example.fitnessrecord.model.AiWorkoutSet
 import com.example.fitnessrecord.model.AttendancePoint
 import com.example.fitnessrecord.model.TrendMode
+import com.example.fitnessrecord.model.getEffectiveUserPrompt
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -31,16 +32,18 @@ class DefaultAiAdviceRepository(
         val trend = workoutRepository.observeTrend(TrendMode.Weekly, currentMonth).first()
         val request = AiAdviceRequest(records = records, attendanceTrend = trend)
         val config = settingsRepository.aiProviderConfig.first()
+        val promptConfig = settingsRepository.aiAdvicePromptConfig.first()
+        val effectiveUserPrompt = getEffectiveUserPrompt(promptConfig)
 
         val result = if (config.shouldUseMock()) {
             mockApiService.requestAiAdvice(request)
         } else {
-            OpenAiCompatibleApiService(config).requestAiAdvice(request)
+            OpenAiCompatibleApiService(config, effectiveUserPrompt).requestAiAdvice(request)
         }
         val dashboardData = getDashboardData()
         settingsRepository.saveAiAdviceCache(
             json = json.encodeToString(result),
-            fingerprint = dashboardData.fingerprint()
+            fingerprint = dashboardData.fingerprint(effectiveUserPrompt)
         )
         return result
     }
@@ -70,7 +73,8 @@ class DefaultAiAdviceRepository(
     override suspend fun getCachedAdvice(dashboardData: AiDashboardData): AiAdviceResult? {
         val cachedJson = settingsRepository.cachedAiAdviceJson.first() ?: return null
         val cachedFingerprint = settingsRepository.cachedAiAdviceFingerprint.first() ?: return null
-        if (cachedFingerprint != dashboardData.fingerprint()) return null
+        val effectiveUserPrompt = getEffectiveUserPrompt(settingsRepository.aiAdvicePromptConfig.first())
+        if (cachedFingerprint != dashboardData.fingerprint(effectiveUserPrompt)) return null
         return runCatching { json.decodeFromString<AiAdviceResult>(cachedJson) }.getOrNull()
     }
 
@@ -88,7 +92,13 @@ class DefaultAiAdviceRepository(
                         AiWorkoutAction(
                             name = action.name,
                             sets = action.sets.map { set ->
-                                AiWorkoutSet(reps = set.reps, weightKg = set.weightKg)
+                                AiWorkoutSet(
+                                    reps = set.reps,
+                                    weightKg = set.weightKg,
+                                    durationSeconds = set.durationSeconds,
+                                    distanceKm = set.distanceKm,
+                                    notes = set.notes
+                                )
                             }
                         )
                     }
@@ -96,7 +106,7 @@ class DefaultAiAdviceRepository(
             }
     }
 
-    private fun AiDashboardData.fingerprint(): String = buildString {
+    private fun AiDashboardData.fingerprint(effectiveUserPrompt: String): String = buildString {
         append(totalTrainingDays).append('|')
         append(totalMinutes).append('|')
         append(totalActions).append('|')
@@ -104,6 +114,8 @@ class DefaultAiAdviceRepository(
         attendanceTrend.forEach { append(it.label).append(':').append(it.count).append(';') }
         append('|')
         typeBreakdown.forEach { append(it.label).append(':').append(it.count).append(';') }
+        append('|')
+        append(effectiveUserPrompt)
     }
 
     private fun AiProviderConfig.shouldUseMock(): Boolean {
