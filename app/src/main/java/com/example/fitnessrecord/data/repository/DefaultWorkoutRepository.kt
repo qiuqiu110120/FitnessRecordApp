@@ -12,6 +12,8 @@ import com.example.fitnessrecord.model.AttendancePoint
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
 import com.example.fitnessrecord.model.DEFAULT_CUSTOM_ACTION_FOLDER_ID
+import com.example.fitnessrecord.model.QuickImportActionMatch
+import com.example.fitnessrecord.model.QuickImportActionMatchType
 import com.example.fitnessrecord.model.QuickImportPlan
 import com.example.fitnessrecord.model.QuickImportPreview
 import com.example.fitnessrecord.model.QuickImportResult
@@ -21,9 +23,9 @@ import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
 import com.example.fitnessrecord.model.hasMeaningfulContent
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import java.time.DayOfWeek
@@ -90,6 +92,7 @@ class DefaultWorkoutRepository(
             actions = validActions.mapIndexed { sortOrder, (_, action) ->
                 WorkoutActionEntity(
                     dateEpochDay = day.date.toEpochDay(),
+                    customActionId = action.customActionId,
                     name = action.name.trim(),
                     sortOrder = sortOrder,
                     syncStatus = SyncStatus.PENDING_UPLOAD.name,
@@ -147,6 +150,32 @@ class DefaultWorkoutRepository(
         )
     }
 
+    override suspend fun renameCustomActionFolder(id: Long, name: String): ActionFolderSaveResult {
+        val folder = workoutDao.getCustomActionFolder(id) ?: return ActionFolderSaveResult.NotFound
+        if (folder.isDefault) return ActionFolderSaveResult.DefaultFolder
+
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) return ActionFolderSaveResult.BlankName
+
+        val normalizedName = trimmedName.normalizedActionName()
+        if (workoutDao.findCustomActionFolderIdByNormalizedNameExcludingId(normalizedName, id) != null) {
+            return ActionFolderSaveResult.DuplicateName
+        }
+
+        val updatedAt = System.currentTimeMillis()
+        val updated = workoutDao.updateCustomActionFolder(
+            id = id,
+            name = trimmedName,
+            normalizedName = normalizedName,
+            updatedAt = updatedAt
+        )
+        if (updated == 0) return ActionFolderSaveResult.NotFound
+
+        return ActionFolderSaveResult.Saved(
+            folder.copy(name = trimmedName, normalizedName = normalizedName, updatedAt = updatedAt).toModel()
+        )
+    }
+
     override suspend fun deleteCustomActionFolder(id: Long): DeleteFolderResult {
         val folder = workoutDao.getCustomActionFolder(id) ?: return DeleteFolderResult.NotFound
         if (folder.isDefault) return DeleteFolderResult.DefaultFolder
@@ -163,23 +192,49 @@ class DefaultWorkoutRepository(
         val name = action.name.trim()
         if (name.isBlank()) return CustomActionSaveResult.BlankName
 
-        val folderId = workoutDao.existingFolderIdOrDefault(action.folderId)
+        val targetFolder = workoutDao.getCustomActionFolder(action.folderId)
+            ?: return CustomActionSaveResult.FolderNotFound
         val normalizedName = name.normalizedActionName()
-        val duplicateId = workoutDao.findCustomActionIdByNormalizedName(folderId, normalizedName)
-        if (duplicateId != null && duplicateId != action.id) {
-            return CustomActionSaveResult.DuplicateName
+        val duplicateId = if (action.id == 0L) {
+            workoutDao.findCustomActionIdByNormalizedName(targetFolder.id, normalizedName)
+        } else {
+            workoutDao.findCustomActionIdByNormalizedNameExcludingId(targetFolder.id, normalizedName, action.id)
         }
+        if (duplicateId != null) return CustomActionSaveResult.DuplicateName
 
-        val savedAction = workoutDao.insertCustomActionInFolder(
-            CustomActionEntity(
-                id = action.id,
-                folderId = folderId,
+        val savedAction = if (action.id == 0L) {
+            workoutDao.insertCustomActionInFolder(
+                CustomActionEntity(
+                    folderId = targetFolder.id,
+                    name = name,
+                    normalizedName = normalizedName,
+                    sortOrder = action.sortOrder,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        } else {
+            val existing = workoutDao.getCustomAction(action.id) ?: return CustomActionSaveResult.FolderNotFound
+            val sortOrder = if (existing.folderId == targetFolder.id) {
+                existing.sortOrder
+            } else {
+                workoutDao.getMaxActionSortOrder(targetFolder.id) + 1
+            }
+            val id = workoutDao.upsertCustomAction(
+                existing.copy(
+                    folderId = targetFolder.id,
+                    name = name,
+                    normalizedName = normalizedName,
+                    sortOrder = sortOrder,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            workoutDao.getCustomAction(id) ?: existing.copy(
+                folderId = targetFolder.id,
                 name = name,
                 normalizedName = normalizedName,
-                sortOrder = action.sortOrder,
-                updatedAt = System.currentTimeMillis()
+                sortOrder = sortOrder
             )
-        )
+        }
 
         return CustomActionSaveResult.Saved(savedAction.toModel())
     }
@@ -188,31 +243,57 @@ class DefaultWorkoutRepository(
         workoutDao.deleteCustomAction(id)
     }
 
-    override suspend fun previewQuickImport(workouts: List<QuickImportWorkout>): QuickImportPlan {
+    override suspend fun previewQuickImport(workouts: List<QuickImportWorkout>): QuickImportPlan =
+        buildQuickImportPlan(workouts)
+
+    private suspend fun buildQuickImportPlan(workouts: List<QuickImportWorkout>): QuickImportPlan {
         val existingDates = observeRecordDates().first()
         val actions = observeCustomActions().first()
         val folders = observeCustomActionFolders().first()
-        val defaultFolderId = folders.firstOrNull { it.isDefault }?.id ?: DEFAULT_CUSTOM_ACTION_FOLDER_ID
-        val uniqueMissingNames = workouts
+        val foldersById = folders.associateBy { it.id }
+        val defaultFolder = folders.firstOrNull { it.isDefault }
+            ?: folders.firstOrNull { it.id == DEFAULT_CUSTOM_ACTION_FOLDER_ID }
+            ?: CustomActionFolder(id = DEFAULT_CUSTOM_ACTION_FOLDER_ID, name = "默认", isDefault = true)
+        val actionMatches = workouts
             .flatMap { it.exercises }
             .map { it.name.normalizedActionName() to it.name }
             .distinctBy { it.first }
-            .filter { (normalizedName, _) -> actions.none { it.name.normalizedActionName() == normalizedName } }
-        val ambiguousNames = workouts
-            .flatMap { it.exercises }
-            .map { it.name.normalizedActionName() to it.name }
-            .distinctBy { it.first }
-            .filter { (normalizedName, _) ->
+            .map { (normalizedName, name) ->
                 val matches = actions.filter { it.name.normalizedActionName() == normalizedName }
-                matches.size > 1 && matches.count { it.folderId == defaultFolderId } != 1
+                when (matches.size) {
+                    0 -> QuickImportActionMatch(
+                        normalizedName = normalizedName,
+                        name = name.trim(),
+                        type = QuickImportActionMatchType.New,
+                        folderName = defaultFolder.name
+                    )
+                    1 -> {
+                        val action = matches.first()
+                        QuickImportActionMatch(
+                            normalizedName = normalizedName,
+                            name = name.trim(),
+                            type = QuickImportActionMatchType.Matched,
+                            customActionId = action.id,
+                            folderName = foldersById[action.folderId]?.name ?: "默认"
+                        )
+                    }
+                    else -> QuickImportActionMatch(
+                        normalizedName = normalizedName,
+                        name = name.trim(),
+                        type = QuickImportActionMatchType.Ambiguous
+                    )
+                }
             }
+        val newActions = actionMatches.filter { it.type == QuickImportActionMatchType.New }
+        val matchedActions = actionMatches.filter { it.type == QuickImportActionMatchType.Matched }
+        val ambiguousActions = actionMatches.filter { it.type == QuickImportActionMatchType.Ambiguous }
         val sameDateCount = workouts.count { it.date in existingDates }
         val warnings = buildList {
             if (sameDateCount > 0) {
                 add("发现同日期训练记录 $sameDateCount 条，确认后会追加到对应日期。")
             }
-            ambiguousNames.forEach { (_, name) ->
-                add("动作“$name”存在多个同名模板，导入时仅保存动作名称快照。")
+            ambiguousActions.forEach { action ->
+                add("动作“${action.name}”存在多个同名动作，本次导入会先保留名称，暂不关联到动作库。")
             }
         }
         return QuickImportPlan(
@@ -221,22 +302,24 @@ class DefaultWorkoutRepository(
                 workoutCount = workouts.size,
                 existingDateCount = sameDateCount,
                 setCount = workouts.sumOf { workout -> workout.exercises.sumOf { it.sets.size } },
-                newActionCount = uniqueMissingNames.size,
-                ambiguousActionCount = ambiguousNames.size,
+                newActionCount = newActions.size,
+                matchedActionCount = matchedActions.size,
+                ambiguousActionCount = ambiguousActions.size,
+                newActions = newActions,
+                matchedActions = matchedActions,
+                ambiguousActions = ambiguousActions,
                 warnings = warnings
-            )
+            ),
+            actionMatches = actionMatches
         )
     }
 
     override suspend fun importQuickWorkouts(plan: QuickImportPlan): QuickImportResult {
         val now = System.currentTimeMillis()
-        val existingActions = observeCustomActions().first()
-        val missingActionNames = plan.workouts
-            .flatMap { it.exercises }
-            .map { it.name.normalizedActionName() to it.name }
-            .distinctBy { it.first }
-            .filter { (normalizedName, _) -> existingActions.none { it.name.normalizedActionName() == normalizedName } }
-            .map { (_, name) -> name }
+        val matchesByNormalizedName = plan.actionMatches.associateBy { it.normalizedName }
+        val newActionNames = plan.actionMatches
+            .filter { it.type == QuickImportActionMatchType.New }
+            .map { it.name }
 
         val days = plan.workouts.map { workout ->
             WorkoutDayEntity(
@@ -249,8 +332,10 @@ class DefaultWorkoutRepository(
         }
         val actions = plan.workouts.map { workout ->
             workout.exercises.mapIndexed { index, exercise ->
+                val match = matchesByNormalizedName[exercise.name.normalizedActionName()]
                 WorkoutActionEntity(
                     dateEpochDay = workout.date.toEpochDay(),
+                    customActionId = match?.takeIf { it.type == QuickImportActionMatchType.Matched }?.customActionId,
                     name = exercise.name,
                     sortOrder = index,
                     syncStatus = SyncStatus.PENDING_UPLOAD.name,
@@ -281,12 +366,14 @@ class DefaultWorkoutRepository(
             days = days,
             actions = actions,
             setsByWorkoutAction = sets,
-            missingActionNames = missingActionNames
+            newActionNames = newActionNames
         )
         return QuickImportResult(
             workoutCount = plan.preview.workoutCount,
             setCount = plan.preview.setCount,
             newActionCount = newActionCount,
+            matchedActionCount = plan.preview.matchedActionCount,
+            ambiguousActionCount = plan.preview.ambiguousActionCount,
             existingDateCount = plan.preview.existingDateCount
         )
     }
@@ -301,6 +388,7 @@ class DefaultWorkoutRepository(
             .map { actionWithSets ->
                 WorkoutAction(
                     id = actionWithSets.action.id,
+                    customActionId = actionWithSets.action.customActionId,
                     name = actionWithSets.action.name,
                     sets = actionWithSets.sets.sortedBy { it.setOrder }.map {
                         WorkoutSet(
@@ -353,9 +441,6 @@ private fun CustomActionEntity.toModel(): CustomAction = CustomAction(
     name = name,
     sortOrder = sortOrder,
 )
-
-private suspend fun WorkoutDao.existingFolderIdOrDefault(folderId: Long): Long =
-    getCustomActionFolder(folderId)?.id ?: DEFAULT_CUSTOM_ACTION_FOLDER_ID
 
 private fun String.normalizedActionName(): String =
     trim().lowercase(Locale.ROOT)

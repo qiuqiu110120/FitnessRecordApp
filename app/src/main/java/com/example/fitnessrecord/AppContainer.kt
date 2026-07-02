@@ -30,7 +30,8 @@ class AppContainer(context: Context) {
         FitnessDatabase.MIGRATION_1_4,
         FitnessDatabase.MIGRATION_2_4,
         FitnessDatabase.MIGRATION_3_4,
-        FitnessDatabase.MIGRATION_4_5
+        FitnessDatabase.MIGRATION_4_5,
+        FitnessDatabase.MIGRATION_5_6
     )
         .addCallback(object : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {

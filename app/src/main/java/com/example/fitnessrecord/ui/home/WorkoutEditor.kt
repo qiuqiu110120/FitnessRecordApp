@@ -63,7 +63,7 @@ fun WorkoutEditorScreen(
     onDurationChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
     onAddAction: () -> Unit,
-    onAddCustomAction: (String) -> Unit,
+    onAddCustomAction: (CustomAction) -> Unit,
     onActionNameChange: (Long, String) -> Unit,
     onDeleteAction: (Long) -> Unit,
     onAddSets: (Long, Int) -> Unit,
@@ -285,7 +285,7 @@ private fun AddActionsPanel(
     hasAnyCustomActions: Boolean,
     onSelectFolder: (Long?) -> Unit,
     onAddAction: () -> Unit,
-    onAddCustomAction: (String) -> Unit,
+    onAddCustomAction: (CustomAction) -> Unit,
 ) {
     val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
     val folderName = selectedFolder?.name ?: "全部"
@@ -417,7 +417,7 @@ private fun AddActionsPanel(
                 Button(
                     onClick = {
                         selectedAction?.let { action ->
-                            onAddCustomAction(action.name)
+                            onAddCustomAction(action)
                             selectedActionId = null
                             actionExpanded = false
                         }

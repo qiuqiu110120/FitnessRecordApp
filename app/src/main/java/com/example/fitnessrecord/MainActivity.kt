@@ -94,6 +94,7 @@ private fun FitnessRecordApp(
     appSettingsViewModel: AppSettingsViewModel,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
+    var openActionSettingsRequest by rememberSaveable { mutableStateOf(0) }
     val tabStateHolder = rememberSaveableStateHolder()
     val context = LocalContext.current
     val activity = context as? Activity
@@ -234,7 +235,8 @@ private fun FitnessRecordApp(
             when (selectedTab) {
                 AppTab.Home -> HomeRoute(
                     innerPadding = innerPadding,
-                    viewModel = homeViewModel
+                    viewModel = homeViewModel,
+                    openActionSettingsRequest = openActionSettingsRequest
                 )
 
                 AppTab.AiAdvice -> AiAdviceRoute(
@@ -270,6 +272,11 @@ private fun FitnessRecordApp(
                         onExportData = { exportLauncher.launch("fra-workout-export.json") },
                         onPickImportFile = { importLauncher.launch(arrayOf("application/json", "text/*", "*/*")) },
                         onConfirmQuickImport = homeViewModel::confirmQuickImport,
+                        onOrganizeImportedActions = {
+                            homeViewModel.selectDefaultActionFolder()
+                            selectedTab = AppTab.Home
+                            openActionSettingsRequest += 1
+                        },
                         onClearQuickImportState = homeViewModel::clearQuickImportState,
                         onRefreshLogs = {
                             scope.launch(AppLogger.coroutineExceptionHandler) {

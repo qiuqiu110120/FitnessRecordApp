@@ -24,6 +24,7 @@ interface WorkoutRepository {
     suspend fun saveWorkoutDay(day: WorkoutDay)
     suspend fun deleteWorkoutDay(date: LocalDate)
     suspend fun createCustomActionFolder(name: String): ActionFolderSaveResult
+    suspend fun renameCustomActionFolder(id: Long, name: String): ActionFolderSaveResult
     suspend fun deleteCustomActionFolder(id: Long): DeleteFolderResult
     suspend fun saveCustomAction(action: CustomAction): CustomActionSaveResult
     suspend fun deleteCustomAction(id: Long)
@@ -35,6 +36,8 @@ sealed interface ActionFolderSaveResult {
     data class Saved(val folder: CustomActionFolder) : ActionFolderSaveResult
     data object BlankName : ActionFolderSaveResult
     data object DuplicateName : ActionFolderSaveResult
+    data object DefaultFolder : ActionFolderSaveResult
+    data object NotFound : ActionFolderSaveResult
 }
 
 sealed interface DeleteFolderResult {
@@ -48,4 +51,5 @@ sealed interface CustomActionSaveResult {
     data class Saved(val action: CustomAction) : CustomActionSaveResult
     data object BlankName : CustomActionSaveResult
     data object DuplicateName : CustomActionSaveResult
+    data object FolderNotFound : CustomActionSaveResult
 }

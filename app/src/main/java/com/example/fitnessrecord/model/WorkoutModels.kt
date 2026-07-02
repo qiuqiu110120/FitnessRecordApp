@@ -19,6 +19,7 @@ data class WorkoutDay(
 @Immutable
 data class WorkoutAction(
     val id: Long = 0,
+    val customActionId: Long? = null,
     val name: String,
     val sets: List<WorkoutSet> = emptyList(),
 )
@@ -163,6 +164,7 @@ data class QuickImportSet(
 data class QuickImportPlan(
     val workouts: List<QuickImportWorkout>,
     val preview: QuickImportPreview,
+    val actionMatches: List<QuickImportActionMatch> = emptyList(),
 )
 
 @Immutable
@@ -171,7 +173,11 @@ data class QuickImportPreview(
     val existingDateCount: Int,
     val setCount: Int,
     val newActionCount: Int,
+    val matchedActionCount: Int,
     val ambiguousActionCount: Int,
+    val newActions: List<QuickImportActionMatch> = emptyList(),
+    val matchedActions: List<QuickImportActionMatch> = emptyList(),
+    val ambiguousActions: List<QuickImportActionMatch> = emptyList(),
     val warnings: List<String> = emptyList(),
 )
 
@@ -180,7 +186,24 @@ data class QuickImportResult(
     val workoutCount: Int,
     val setCount: Int,
     val newActionCount: Int,
+    val matchedActionCount: Int,
+    val ambiguousActionCount: Int,
     val existingDateCount: Int,
+)
+
+enum class QuickImportActionMatchType {
+    New,
+    Matched,
+    Ambiguous,
+}
+
+@Immutable
+data class QuickImportActionMatch(
+    val normalizedName: String,
+    val name: String,
+    val type: QuickImportActionMatchType,
+    val customActionId: Long? = null,
+    val folderName: String? = null,
 )
 
 const val MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS: Int = 2_000

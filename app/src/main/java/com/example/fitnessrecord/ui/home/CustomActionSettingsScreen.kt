@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -24,7 +25,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,12 +53,16 @@ fun CustomActionSettingsScreen(
     onFolderDraftNameChange: (String) -> Unit,
     onSaveAction: () -> Unit,
     onSaveFolder: () -> Unit,
+    onUpdateAction: (Long, String, Long) -> Unit,
+    onRenameFolder: (Long, String) -> Unit,
     onDeleteAction: (Long) -> Unit,
     onDeleteFolder: (Long) -> Unit,
     onClearMessage: () -> Unit,
 ) {
     var pendingActionDelete by remember { mutableStateOf<CustomAction?>(null) }
     var pendingFolderDelete by remember { mutableStateOf<CustomActionFolder?>(null) }
+    var pendingActionEdit by remember { mutableStateOf<CustomAction?>(null) }
+    var pendingFolderEdit by remember { mutableStateOf<CustomActionFolder?>(null) }
     val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
     val title = selectedFolder?.name ?: "全部"
     val actionTargetTitle = selectedFolder?.name ?: "默认"
@@ -115,9 +119,16 @@ fun CustomActionSettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (selectedFolder != null && !selectedFolder.isDefault && actions.isEmpty()) {
-                    IconButton(onClick = { pendingFolderDelete = selectedFolder }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "删除文件夹")
+                if (selectedFolder != null && !selectedFolder.isDefault) {
+                    Row {
+                        IconButton(onClick = { pendingFolderEdit = selectedFolder }) {
+                            Icon(Icons.Outlined.Edit, contentDescription = "重命名文件夹")
+                        }
+                        if (actions.isEmpty()) {
+                            IconButton(onClick = { pendingFolderDelete = selectedFolder }) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "删除文件夹")
+                            }
+                        }
                     }
                 }
             }
@@ -140,16 +151,43 @@ fun CustomActionSettingsScreen(
                 key = { it.id },
                 contentType = { "custom-action" }
             ) { action ->
-                CustomActionRow(action = action, onDelete = { pendingActionDelete = action })
+                CustomActionRow(
+                    action = action,
+                    onEdit = { pendingActionEdit = action },
+                    onDelete = { pendingActionDelete = action }
+                )
             }
         }
+    }
+
+    pendingActionEdit?.let { action ->
+        EditActionDialog(
+            action = action,
+            folders = folders,
+            onDismiss = { pendingActionEdit = null },
+            onSave = { name, folderId ->
+                pendingActionEdit = null
+                onUpdateAction(action.id, name, folderId)
+            }
+        )
+    }
+
+    pendingFolderEdit?.let { folder ->
+        EditFolderDialog(
+            folder = folder,
+            onDismiss = { pendingFolderEdit = null },
+            onSave = { name ->
+                pendingFolderEdit = null
+                onRenameFolder(folder.id, name)
+            }
+        )
     }
 
     pendingActionDelete?.let { action ->
         AlertDialog(
             onDismissRequest = { pendingActionDelete = null },
             title = { Text("删除动作") },
-            text = { Text("确定删除“${action.name}”吗？") },
+            text = { Text("确定删除“${action.name}”吗？历史训练记录仍会保留当时的动作名称。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -309,6 +347,7 @@ private fun NewActionCard(
 @Composable
 private fun CustomActionRow(
     action: CustomAction,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
@@ -324,9 +363,99 @@ private fun CustomActionRow(
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge
             )
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Outlined.Edit, contentDescription = "编辑动作")
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Outlined.Delete, contentDescription = "删除动作")
             }
         }
     }
+}
+
+@Composable
+private fun EditActionDialog(
+    action: CustomAction,
+    folders: List<CustomActionFolder>,
+    onDismiss: () -> Unit,
+    onSave: (String, Long) -> Unit,
+) {
+    var name by remember(action.id) { mutableStateOf(action.name) }
+    var folderId by remember(action.id) { mutableStateOf(action.folderId) }
+    val targetFolderId = folders.firstOrNull { it.id == folderId }?.id ?: folders.firstOrNull { it.isDefault }?.id
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("编辑动作") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("动作名称") },
+                    singleLine = true
+                )
+                Text("所属文件夹", style = MaterialTheme.typography.bodyMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(folders, key = { it.id }) { folder ->
+                        FilterChip(
+                            selected = targetFolderId == folder.id,
+                            onClick = { folderId = folder.id },
+                            label = { Text(folder.name) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { targetFolderId?.let { onSave(name, it) } },
+                enabled = name.isNotBlank() && targetFolderId != null
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+private fun EditFolderDialog(
+    folder: CustomActionFolder,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var name by remember(folder.id) { mutableStateOf(folder.name) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("重命名文件夹") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("文件夹名称") },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(name) },
+                enabled = name.isNotBlank()
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }

@@ -80,11 +80,17 @@ interface WorkoutDao {
     @Query("SELECT id FROM custom_action_folders WHERE normalizedName = :normalizedName LIMIT 1")
     suspend fun findCustomActionFolderIdByNormalizedName(normalizedName: String): Long?
 
+    @Query("SELECT id FROM custom_action_folders WHERE normalizedName = :normalizedName AND id != :id LIMIT 1")
+    suspend fun findCustomActionFolderIdByNormalizedNameExcludingId(normalizedName: String, id: Long): Long?
+
     @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM custom_action_folders")
     suspend fun getMaxFolderSortOrder(): Int
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertCustomActionFolder(folder: CustomActionFolderEntity): Long
+
+    @Query("UPDATE custom_action_folders SET name = :name, normalizedName = :normalizedName, updatedAt = :updatedAt WHERE id = :id AND isDefault = 0")
+    suspend fun updateCustomActionFolder(id: Long, name: String, normalizedName: String, updatedAt: Long): Int
 
     @Query("SELECT COUNT(*) FROM custom_actions WHERE folderId = :folderId")
     suspend fun getCustomActionCountInFolder(folderId: Long): Int
@@ -94,6 +100,9 @@ interface WorkoutDao {
 
     @Query("SELECT id FROM custom_actions WHERE folderId = :folderId AND normalizedName = :normalizedName LIMIT 1")
     suspend fun findCustomActionIdByNormalizedName(folderId: Long, normalizedName: String): Long?
+
+    @Query("SELECT id FROM custom_actions WHERE folderId = :folderId AND normalizedName = :normalizedName AND id != :id LIMIT 1")
+    suspend fun findCustomActionIdByNormalizedNameExcludingId(folderId: Long, normalizedName: String, id: Long): Long?
 
     @Query("SELECT * FROM custom_actions WHERE normalizedName = :normalizedName ORDER BY folderId ASC, sortOrder ASC, name COLLATE NOCASE ASC")
     suspend fun findCustomActionsByNormalizedName(normalizedName: String): List<CustomActionEntity>
@@ -177,14 +186,15 @@ interface WorkoutDao {
         days: List<WorkoutDayEntity>,
         actions: List<List<WorkoutActionEntity>>,
         setsByWorkoutAction: List<List<List<WorkoutSetEntity>>>,
-        missingActionNames: List<String>,
+        newActionNames: List<String>,
     ): Int {
         val defaultFolder = ensureDefaultFolder(now)
+        val newActionIdsByNormalizedName = mutableMapOf<String, Long>()
         var newActionCount = 0
-        missingActionNames.forEach { name ->
+        newActionNames.forEach { name ->
             val normalizedName = name.trim().lowercase()
             if (findCustomActionsByNormalizedName(normalizedName).isEmpty()) {
-                insertCustomActionInFolder(
+                val savedAction = insertCustomActionInFolder(
                     CustomActionEntity(
                         folderId = defaultFolder.id,
                         name = name.trim(),
@@ -193,10 +203,19 @@ interface WorkoutDao {
                         updatedAt = now
                     )
                 )
+                newActionIdsByNormalizedName[normalizedName] = savedAction.id
                 newActionCount += 1
             }
         }
-        appendWorkoutDays(days, actions, setsByWorkoutAction)
+        appendWorkoutDays(
+            days = days,
+            actions = actions.map { workoutActions ->
+                workoutActions.map { action ->
+                    action.copy(customActionId = action.customActionId ?: newActionIdsByNormalizedName[action.name.trim().lowercase()])
+                }
+            },
+            setsByWorkoutAction = setsByWorkoutAction
+        )
         return newActionCount
     }
 

@@ -1,4 +1,4 @@
-package com.example.fitnessrecord.ui.home
+﻿package com.example.fitnessrecord.ui.home
 
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
@@ -241,12 +241,13 @@ class HomeViewModel(
         requestSave(immediate = true)
     }
 
-    fun addActionFromTemplate(actionName: String) {
+    fun addActionFromTemplate(action: CustomAction) {
         updateDraft { day ->
             day.copy(
                 actions = day.actions + WorkoutActionDraft(
                     id = newLocalId(),
-                    name = actionName,
+                    customActionId = action.id,
+                    name = action.name,
                     sets = listOf(WorkoutSetDraft(id = newLocalId()))
                 )
             )
@@ -262,15 +263,15 @@ class HomeViewModel(
             when (val result = workoutRepository.saveCustomAction(CustomAction(folderId = folderId, name = name))) {
                 CustomActionSaveResult.BlankName -> actionLibraryMessage.value = "动作名称不能为空"
                 CustomActionSaveResult.DuplicateName -> actionLibraryMessage.value = "当前文件夹已有同名动作"
+                CustomActionSaveResult.FolderNotFound -> actionLibraryMessage.value = "目标文件夹不存在"
                 is CustomActionSaveResult.Saved -> {
                     customActionDraft.value = ""
                     actionLibraryMessage.value = null
-                    addActionFromTemplate(result.action.name)
+                    addActionFromTemplate(result.action)
                 }
             }
         }
     }
-
     fun updateActionName(actionId: Long, name: String) {
         updateDraft { day ->
             day.copy(actions = day.actions.map { if (it.id == actionId) it.copy(name = name) else it })
@@ -387,10 +388,22 @@ class HomeViewModel(
             when (workoutRepository.saveCustomAction(CustomAction(folderId = folderId, name = name))) {
                 CustomActionSaveResult.BlankName -> actionLibraryMessage.value = "动作名称不能为空"
                 CustomActionSaveResult.DuplicateName -> actionLibraryMessage.value = "当前文件夹已有同名动作"
+                CustomActionSaveResult.FolderNotFound -> actionLibraryMessage.value = "目标文件夹不存在"
                 is CustomActionSaveResult.Saved -> {
                     customActionDraft.value = ""
                     actionLibraryMessage.value = null
                 }
+            }
+        }
+    }
+
+    fun saveEditedCustomAction(id: Long, name: String, folderId: Long) {
+        viewModelScope.launch {
+            when (workoutRepository.saveCustomAction(CustomAction(id = id, folderId = folderId, name = name))) {
+                CustomActionSaveResult.BlankName -> actionLibraryMessage.value = "动作名称不能为空"
+                CustomActionSaveResult.DuplicateName -> actionLibraryMessage.value = "目标文件夹已有同名动作"
+                CustomActionSaveResult.FolderNotFound -> actionLibraryMessage.value = "目标文件夹不存在"
+                is CustomActionSaveResult.Saved -> actionLibraryMessage.value = null
             }
         }
     }
@@ -414,11 +427,25 @@ class HomeViewModel(
             when (val result = workoutRepository.createCustomActionFolder(name)) {
                 ActionFolderSaveResult.BlankName -> actionLibraryMessage.value = "文件夹名称不能为空"
                 ActionFolderSaveResult.DuplicateName -> actionLibraryMessage.value = "已有同名文件夹"
+                ActionFolderSaveResult.DefaultFolder -> actionLibraryMessage.value = "默认文件夹不能重命名"
+                ActionFolderSaveResult.NotFound -> actionLibraryMessage.value = "文件夹不存在"
                 is ActionFolderSaveResult.Saved -> {
                     customActionFolderDraft.value = ""
                     selectedActionFolderId.value = result.folder.id
                     actionLibraryMessage.value = null
                 }
+            }
+        }
+    }
+
+    fun renameCustomActionFolder(id: Long, name: String) {
+        viewModelScope.launch {
+            when (workoutRepository.renameCustomActionFolder(id, name)) {
+                ActionFolderSaveResult.BlankName -> actionLibraryMessage.value = "文件夹名称不能为空"
+                ActionFolderSaveResult.DuplicateName -> actionLibraryMessage.value = "已有同名文件夹"
+                ActionFolderSaveResult.DefaultFolder -> actionLibraryMessage.value = "默认文件夹不能重命名"
+                ActionFolderSaveResult.NotFound -> actionLibraryMessage.value = "文件夹不存在"
+                is ActionFolderSaveResult.Saved -> actionLibraryMessage.value = null
             }
         }
     }
@@ -440,6 +467,12 @@ class HomeViewModel(
         }
     }
 
+    fun selectDefaultActionFolder() {
+        val defaultFolderId = uiState.value.customActionFolders.firstOrNull { it.isDefault }?.id ?: DEFAULT_CUSTOM_ACTION_FOLDER_ID
+        selectedActionFolderId.value = defaultFolderId
+        actionLibraryMessage.value = null
+    }
+
     fun clearActionLibraryMessage() {
         actionLibraryMessage.value = null
     }
@@ -457,7 +490,7 @@ class HomeViewModel(
                     importState.value = QuickImportUiState(plan = plan, preview = plan.preview)
                 }
                 .onFailure { error ->
-                    importState.value = QuickImportUiState(errors = listOf(error.message ?: "导入预览失败"))
+                    importState.value = QuickImportUiState(errors = listOf(error.message ?: "瀵煎叆棰勮澶辫触"))
                 }
         }
     }
@@ -471,7 +504,7 @@ class HomeViewModel(
                     importState.value = QuickImportUiState(result = result)
                 }
                 .onFailure { error ->
-                    importState.value = QuickImportUiState(errors = listOf(error.message ?: "导入失败"))
+                    importState.value = QuickImportUiState(errors = listOf(error.message ?: "瀵煎叆澶辫触"))
                 }
         }
     }
@@ -654,6 +687,7 @@ data class WorkoutEditorDraft(
 @Immutable
 data class WorkoutActionDraft(
     val id: Long,
+    val customActionId: Long? = null,
     val name: String,
     val sets: List<WorkoutSetDraft> = emptyList(),
 )
@@ -750,6 +784,7 @@ private fun WorkoutDay.toEditorDraft(): WorkoutEditorDraft = WorkoutEditorDraft(
     actions = actions.map { action ->
         WorkoutActionDraft(
             id = action.id.takeUnless { it == 0L } ?: -System.nanoTime(),
+            customActionId = action.customActionId,
             name = action.name,
             sets = action.sets.map { set ->
                 WorkoutSetDraft(
@@ -782,7 +817,7 @@ private fun WorkoutEditorDraft.toWorkoutDayOrError(): WorkoutDay? {
             val reps = set.reps.trim().takeIf { it.isNotEmpty() }?.toInt()
             WorkoutSet(id = set.id, reps = reps, weightKg = weight)
         }
-        WorkoutAction(id = action.id, name = trimmedName, sets = sets)
+        WorkoutAction(id = action.id, customActionId = action.customActionId, name = trimmedName, sets = sets)
     }
     return WorkoutDay(
         date = date,
@@ -827,3 +862,4 @@ private enum class WeightInvalidReason {
 
 private fun Double.cleanNumber(): String =
     BigDecimal.valueOf(this).stripTrailingZeros().toPlainString()
+

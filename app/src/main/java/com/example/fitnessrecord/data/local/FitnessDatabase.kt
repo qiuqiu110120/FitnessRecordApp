@@ -19,7 +19,7 @@ import com.example.fitnessrecord.data.local.entity.WorkoutSetEntity
         CustomActionFolderEntity::class,
         CustomActionEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class FitnessDatabase : RoomDatabase() {
@@ -47,6 +47,12 @@ abstract class FitnessDatabase : RoomDatabase() {
         val MIGRATION_4_5: Migration = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 addWorkoutSetImportFields(db)
+            }
+        }
+
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workout_actions ADD COLUMN customActionId INTEGER")
             }
         }
 

@@ -78,6 +78,7 @@ import com.example.fitnessrecord.model.AiTokenUsage
 import com.example.fitnessrecord.model.MAX_CUSTOM_AI_ADVICE_PROMPT_CHARS
 import com.example.fitnessrecord.model.QuickImportPreview
 import com.example.fitnessrecord.model.QuickImportResult
+import com.example.fitnessrecord.model.QuickImportActionMatch
 import com.example.fitnessrecord.ui.ai.AiConnectionTestMessage
 import com.example.fitnessrecord.ui.ai.ConnectionTestMessageCard
 import com.example.fitnessrecord.ui.ai.TokenUsageSettingsCard
@@ -121,6 +122,7 @@ fun SettingsRoute(
     onExportData: () -> Unit,
     onPickImportFile: () -> Unit,
     onConfirmQuickImport: () -> Unit,
+    onOrganizeImportedActions: () -> Unit,
     onClearQuickImportState: () -> Unit,
     onRefreshLogs: () -> Unit,
     onClearLogs: () -> Unit,
@@ -204,6 +206,7 @@ fun SettingsRoute(
                 onExportData = onExportData,
                 onPickImportFile = onPickImportFile,
                 onConfirmQuickImport = onConfirmQuickImport,
+                onOrganizeImportedActions = onOrganizeImportedActions,
                 onClearQuickImportState = onClearQuickImportState
             )
             SettingsSection.Version -> VersionInfoScreen(
@@ -337,6 +340,7 @@ private fun ExportDataScreen(
     onExportData: () -> Unit,
     onPickImportFile: () -> Unit,
     onConfirmQuickImport: () -> Unit,
+    onOrganizeImportedActions: () -> Unit,
     onClearQuickImportState: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
@@ -348,6 +352,7 @@ private fun ExportDataScreen(
     QuickImportStateDialogs(
         state = quickImportState,
         onConfirmQuickImport = onConfirmQuickImport,
+        onOrganizeImportedActions = onOrganizeImportedActions,
         onClearQuickImportState = onClearQuickImportState
     )
 
@@ -533,6 +538,7 @@ distanceKm：距离，单位公里，可选，必须是正数
 private fun QuickImportStateDialogs(
     state: QuickImportUiState,
     onConfirmQuickImport: () -> Unit,
+    onOrganizeImportedActions: () -> Unit,
     onClearQuickImportState: () -> Unit,
 ) {
     val errors = state.errors
@@ -564,6 +570,21 @@ private fun QuickImportStateDialogs(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(preview.summaryText())
+                    ImportActionMatchSection(
+                        title = "将新增到动作库",
+                        actions = preview.newActions,
+                        emptyText = "没有需要新增的动作"
+                    )
+                    ImportActionMatchSection(
+                        title = "已匹配已有动作",
+                        actions = preview.matchedActions,
+                        emptyText = "没有匹配到已有动作"
+                    )
+                    ImportActionMatchSection(
+                        title = "需要手动整理",
+                        actions = preview.ambiguousActions,
+                        emptyText = "没有需要手动整理的动作"
+                    )
                     Text("导入会追加训练记录，建议导入前先导出当前数据备份。")
                     preview.warnings.forEach { warning ->
                         Text("提示：$warning", color = MaterialTheme.colorScheme.primary)
@@ -599,8 +620,44 @@ private fun QuickImportStateDialogs(
                 TextButton(onClick = onClearQuickImportState) {
                     Text("完成")
                 }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onClearQuickImportState()
+                        onOrganizeImportedActions()
+                    }
+                ) {
+                    Text("去整理新增动作")
+                }
             }
         )
+    }
+}
+
+@Composable
+private fun ImportActionMatchSection(
+    title: String,
+    actions: List<QuickImportActionMatch>,
+    emptyText: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium)
+        if (actions.isEmpty()) {
+            Text(emptyText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return@Column
+        }
+        actions.take(10).forEach { action ->
+            val target = action.folderName?.let { " -> $it / ${action.name}" }.orEmpty()
+            Text(
+                text = "- ${action.name}$target",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (actions.size > 10) {
+            Text("还有 ${actions.size - 10} 个", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -640,14 +697,18 @@ private fun TextContentDialog(
 
 private fun QuickImportPreview.summaryText(): String = buildString {
     appendLine("将新增训练 $workoutCount 次")
-    appendLine("将新增动作 $newActionCount 个")
+    appendLine("将新增到动作库 $newActionCount 个")
+    appendLine("已匹配已有动作 $matchedActionCount 个")
+    appendLine("需要手动整理 $ambiguousActionCount 个")
     appendLine("将新增训练组 $setCount 组")
     append("发现同日期训练记录 $existingDateCount 条")
 }
 
 private fun QuickImportResult.summaryText(): String = buildString {
     appendLine("新增训练 $workoutCount 次")
-    appendLine("新增动作 $newActionCount 个")
+    appendLine("已新增到动作库 $newActionCount 个")
+    appendLine("已匹配已有动作 $matchedActionCount 个")
+    appendLine("需要手动整理 $ambiguousActionCount 个")
     appendLine("新增训练组 $setCount 组")
     append("其中包含同日期训练记录 $existingDateCount 条")
 }

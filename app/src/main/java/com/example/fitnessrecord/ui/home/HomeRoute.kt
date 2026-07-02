@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,11 +49,18 @@ import java.util.Locale
 fun HomeRoute(
     innerPadding: PaddingValues,
     viewModel: HomeViewModel,
+    openActionSettingsRequest: Int = 0,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val editorDraft = uiState.editorDraft
     var showActionSettings by rememberSaveable { mutableStateOf(false) }
     var showDeleteDayConfirm by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(openActionSettingsRequest) {
+        if (openActionSettingsRequest > 0) {
+            showActionSettings = true
+        }
+    }
 
     when {
         showActionSettings -> {
@@ -83,6 +91,8 @@ fun HomeRoute(
                     onFolderDraftNameChange = viewModel::updateCustomActionFolderDraft,
                     onSaveAction = viewModel::saveCustomAction,
                     onSaveFolder = viewModel::saveCustomActionFolder,
+                    onUpdateAction = viewModel::saveEditedCustomAction,
+                    onRenameFolder = viewModel::renameCustomActionFolder,
                     onDeleteAction = viewModel::deleteCustomAction,
                     onDeleteFolder = viewModel::deleteCustomActionFolder,
                     onClearMessage = viewModel::clearActionLibraryMessage

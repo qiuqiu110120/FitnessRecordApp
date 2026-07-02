@@ -20,6 +20,7 @@ import androidx.room.PrimaryKey
 data class WorkoutActionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val dateEpochDay: Long,
+    val customActionId: Long? = null,
     val name: String,
     val sortOrder: Int,
     val remoteId: String? = null,
