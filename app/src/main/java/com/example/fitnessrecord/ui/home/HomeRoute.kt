@@ -69,7 +69,7 @@ fun HomeRoute(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
                     TopAppBar(
-                        title = { Text("管理动作") },
+                        title = { Text("动作库总览") },
                         navigationIcon = {
                             IconButton(onClick = { showActionSettings = false }) {
                                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
@@ -82,11 +82,13 @@ fun HomeRoute(
                     innerPadding = settingsPadding,
                     folders = uiState.customActionFolders,
                     selectedFolderId = uiState.selectedActionFolderId,
+                    newActionTargetFolderId = uiState.newActionTargetFolderId,
                     actions = uiState.customActions,
                     actionDraftName = uiState.customActionDraft,
                     folderDraftName = uiState.customActionFolderDraft,
                     message = uiState.actionLibraryMessage,
                     onSelectFolder = viewModel::selectActionFolder,
+                    onNewActionTargetFolderChange = viewModel::selectNewActionTargetFolder,
                     onActionDraftNameChange = viewModel::updateCustomActionDraft,
                     onFolderDraftNameChange = viewModel::updateCustomActionFolderDraft,
                     onSaveAction = viewModel::saveCustomAction,
@@ -126,15 +128,20 @@ fun HomeRoute(
                     saveStatus = uiState.saveStatus,
                     folders = uiState.customActionFolders,
                     selectedFolderId = uiState.selectedActionFolderId,
+                    newActionTargetFolderId = uiState.newActionTargetFolderId,
                     customActions = uiState.customActions,
                     hasAnyCustomActions = uiState.hasAnyCustomActions,
+                    actionDraftName = uiState.customActionDraft,
                     message = uiState.actionLibraryMessage,
                     onSelectFolder = viewModel::selectActionFolder,
+                    onNewActionTargetFolderChange = viewModel::selectNewActionTargetFolder,
+                    onActionDraftNameChange = viewModel::updateCustomActionDraft,
                     onTrainingTypeChange = viewModel::updateTrainingType,
                     onDurationChange = viewModel::updateDurationMinutes,
                     onNotesChange = viewModel::updateNotes,
                     onAddAction = viewModel::addAction,
                     onAddCustomAction = viewModel::addActionFromTemplate,
+                    onCreateActionAndAdd = viewModel::createActionAndAddToDraft,
                     onActionNameChange = viewModel::updateActionName,
                     onDeleteAction = viewModel::deleteAction,
                     onAddSets = viewModel::addSets,

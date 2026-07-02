@@ -697,7 +697,7 @@ private fun TextContentDialog(
 
 private fun QuickImportPreview.summaryText(): String = buildString {
     appendLine("将新增训练 $workoutCount 次")
-    appendLine("将新增到动作库 $newActionCount 个")
+    appendLine("将新建动作 $newActionCount 个，保存到：未分类")
     appendLine("已匹配已有动作 $matchedActionCount 个")
     appendLine("需要手动整理 $ambiguousActionCount 个")
     appendLine("将新增训练组 $setCount 组")
@@ -706,7 +706,7 @@ private fun QuickImportPreview.summaryText(): String = buildString {
 
 private fun QuickImportResult.summaryText(): String = buildString {
     appendLine("新增训练 $workoutCount 次")
-    appendLine("已新增到动作库 $newActionCount 个")
+    appendLine("已新建动作 $newActionCount 个，保存到：未分类")
     appendLine("已匹配已有动作 $matchedActionCount 个")
     appendLine("需要手动整理 $ambiguousActionCount 个")
     appendLine("新增训练组 $setCount 组")

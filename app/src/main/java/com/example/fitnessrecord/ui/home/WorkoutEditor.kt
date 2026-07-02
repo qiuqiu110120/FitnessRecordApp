@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
+import com.example.fitnessrecord.model.displayName
 
 @Composable
 fun WorkoutEditorScreen(
@@ -55,15 +56,20 @@ fun WorkoutEditorScreen(
     saveStatus: EditorSaveStatus,
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
+    newActionTargetFolderId: Long,
     customActions: List<CustomAction>,
     hasAnyCustomActions: Boolean,
+    actionDraftName: String,
     message: String?,
     onSelectFolder: (Long?) -> Unit,
+    onNewActionTargetFolderChange: (Long) -> Unit,
+    onActionDraftNameChange: (String) -> Unit,
     onTrainingTypeChange: (String) -> Unit,
     onDurationChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
     onAddAction: () -> Unit,
     onAddCustomAction: (CustomAction) -> Unit,
+    onCreateActionAndAdd: () -> Unit,
     onActionNameChange: (Long, String) -> Unit,
     onDeleteAction: (Long) -> Unit,
     onAddSets: (Long, Int) -> Unit,
@@ -143,11 +149,16 @@ fun WorkoutEditorScreen(
             AddActionsPanel(
                 folders = folders,
                 selectedFolderId = selectedFolderId,
+                newActionTargetFolderId = newActionTargetFolderId,
                 customActions = customActions,
                 hasAnyCustomActions = hasAnyCustomActions,
+                actionDraftName = actionDraftName,
                 onSelectFolder = onSelectFolder,
+                onNewActionTargetFolderChange = onNewActionTargetFolderChange,
+                onActionDraftNameChange = onActionDraftNameChange,
                 onAddAction = onAddAction,
-                onAddCustomAction = onAddCustomAction
+                onAddCustomAction = onAddCustomAction,
+                onCreateActionAndAdd = onCreateActionAndAdd
             )
         }
 
@@ -281,16 +292,23 @@ private fun WorkoutActionTitle() {
 private fun AddActionsPanel(
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
+    newActionTargetFolderId: Long,
     customActions: List<CustomAction>,
     hasAnyCustomActions: Boolean,
+    actionDraftName: String,
     onSelectFolder: (Long?) -> Unit,
+    onNewActionTargetFolderChange: (Long) -> Unit,
+    onActionDraftNameChange: (String) -> Unit,
     onAddAction: () -> Unit,
     onAddCustomAction: (CustomAction) -> Unit,
+    onCreateActionAndAdd: () -> Unit,
 ) {
     val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
-    val folderName = selectedFolder?.name ?: "全部"
+    val folderName = selectedFolder?.displayName() ?: "全部动作"
+    val targetFolder = folders.firstOrNull { it.id == newActionTargetFolderId }
     var folderExpanded by rememberSaveable { mutableStateOf(false) }
     var actionExpanded by rememberSaveable { mutableStateOf(false) }
+    var targetExpanded by rememberSaveable { mutableStateOf(false) }
     var selectedActionId by rememberSaveable { mutableStateOf<Long?>(null) }
     val selectedAction = customActions.firstOrNull { it.id == selectedActionId }
     val actionNameCounts = customActions.groupingBy { it.name }.eachCount()
@@ -356,7 +374,7 @@ private fun AddActionsPanel(
                     onDismissRequest = { folderExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("全部") },
+                        text = { Text("全部动作") },
                         onClick = {
                             selectedActionId = null
                             onSelectFolder(null)
@@ -365,7 +383,7 @@ private fun AddActionsPanel(
                     )
                     folders.forEach { folder ->
                         DropdownMenuItem(
-                            text = { Text(folder.name) },
+                            text = { Text(folder.displayName()) },
                             onClick = {
                                 selectedActionId = null
                                 onSelectFolder(folder.id)
@@ -437,6 +455,58 @@ private fun AddActionsPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("保存到动作库并加入", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = actionDraftName,
+                    onValueChange = onActionDraftNameChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("动作名称") },
+                    singleLine = true
+                )
+                ExposedDropdownMenuBox(
+                    expanded = targetExpanded,
+                    onExpandedChange = { if (folders.isNotEmpty()) targetExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = targetFolder?.displayName().orEmpty(),
+                        onValueChange = {},
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth(),
+                        readOnly = true,
+                        enabled = folders.isNotEmpty(),
+                        label = { Text("保存到") },
+                        placeholder = { Text("文件夹加载中") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = targetExpanded) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = targetExpanded,
+                        onDismissRequest = { targetExpanded = false }
+                    ) {
+                        folders.forEach { folder ->
+                            DropdownMenuItem(
+                                text = { Text(folder.displayName()) },
+                                onClick = {
+                                    onNewActionTargetFolderChange(folder.id)
+                                    targetExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onCreateActionAndAdd,
+                    enabled = actionDraftName.isNotBlank() && targetFolder != null
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("保存并加入")
+                }
+            }
         }
     }
 }
@@ -446,7 +516,7 @@ private fun CustomAction.displayName(
     folders: List<CustomActionFolder>,
 ): String {
     if ((actionNameCounts[name] ?: 0) <= 1) return name
-    val folderName = folders.firstOrNull { it.id == folderId }?.name ?: "默认"
+    val folderName = folders.firstOrNull { it.id == folderId }?.displayName() ?: "未分类"
     return "$name · $folderName"
 }
 

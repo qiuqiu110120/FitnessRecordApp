@@ -21,6 +21,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,23 +36,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
+import com.example.fitnessrecord.model.displayName
 
 @Composable
 fun CustomActionSettingsScreen(
     innerPadding: PaddingValues,
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
+    newActionTargetFolderId: Long,
     actions: List<CustomAction>,
     actionDraftName: String,
     folderDraftName: String,
     message: String?,
     onSelectFolder: (Long?) -> Unit,
+    onNewActionTargetFolderChange: (Long) -> Unit,
     onActionDraftNameChange: (String) -> Unit,
     onFolderDraftNameChange: (String) -> Unit,
     onSaveAction: () -> Unit,
@@ -64,8 +72,7 @@ fun CustomActionSettingsScreen(
     var pendingActionEdit by remember { mutableStateOf<CustomAction?>(null) }
     var pendingFolderEdit by remember { mutableStateOf<CustomActionFolder?>(null) }
     val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
-    val title = selectedFolder?.name ?: "全部"
-    val actionTargetTitle = selectedFolder?.name ?: "默认"
+    val title = selectedFolder?.displayName() ?: "全部动作"
 
     LazyColumn(
         modifier = Modifier
@@ -98,8 +105,10 @@ fun CustomActionSettingsScreen(
 
         item(key = "action-editor", contentType = "editor") {
             NewActionCard(
-                title = "新增到 $actionTargetTitle",
+                folders = folders,
+                targetFolderId = newActionTargetFolderId,
                 draftName = actionDraftName,
+                onTargetFolderChange = onNewActionTargetFolderChange,
                 onDraftNameChange = onActionDraftNameChange,
                 onSave = onSaveAction
             )
@@ -210,7 +219,7 @@ fun CustomActionSettingsScreen(
         AlertDialog(
             onDismissRequest = { pendingFolderDelete = null },
             title = { Text("删除文件夹") },
-            text = { Text("确定删除空文件夹“${folder.name}”吗？") },
+            text = { Text("确定删除空文件夹“${folder.displayName()}”吗？") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -298,32 +307,38 @@ private fun FolderSelector(
             FilterChip(
                 selected = selectedFolderId == null,
                 onClick = { onSelectFolder(null) },
-                label = { Text("全部") }
+                label = { Text("全部动作") }
             )
         }
         items(folders, key = { it.id }) { folder ->
             FilterChip(
                 selected = selectedFolderId == folder.id,
                 onClick = { onSelectFolder(folder.id) },
-                label = { Text(folder.name) }
+                label = { Text(folder.displayName()) }
             )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NewActionCard(
-    title: String,
+    folders: List<CustomActionFolder>,
+    targetFolderId: Long,
     draftName: String,
+    onTargetFolderChange: (Long) -> Unit,
     onDraftNameChange: (String) -> Unit,
     onSave: () -> Unit,
 ) {
+    var targetExpanded by rememberSaveable { mutableStateOf(false) }
+    val targetFolder = folders.firstOrNull { it.id == targetFolderId }
+
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text("新增动作", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 value = draftName,
                 onValueChange = onDraftNameChange,
@@ -331,10 +346,42 @@ private fun NewActionCard(
                 label = { Text("动作名称") },
                 singleLine = true
             )
+            ExposedDropdownMenuBox(
+                expanded = targetExpanded,
+                onExpandedChange = { if (folders.isNotEmpty()) targetExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = targetFolder?.displayName().orEmpty(),
+                    onValueChange = {},
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    readOnly = true,
+                    enabled = folders.isNotEmpty(),
+                    label = { Text("保存到") },
+                    placeholder = { Text("文件夹加载中") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = targetExpanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                )
+                ExposedDropdownMenu(
+                    expanded = targetExpanded,
+                    onDismissRequest = { targetExpanded = false }
+                ) {
+                    folders.forEach { folder ->
+                        DropdownMenuItem(
+                            text = { Text(folder.displayName()) },
+                            onClick = {
+                                onTargetFolderChange(folder.id)
+                                targetExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onSave,
-                enabled = draftName.isNotBlank()
+                enabled = draftName.isNotBlank() && targetFolder != null
             ) {
                 Icon(Icons.Outlined.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -402,7 +449,7 @@ private fun EditActionDialog(
                         FilterChip(
                             selected = targetFolderId == folder.id,
                             onClick = { folderId = folder.id },
-                            label = { Text(folder.name) }
+                            label = { Text(folder.displayName()) }
                         )
                     }
                 }

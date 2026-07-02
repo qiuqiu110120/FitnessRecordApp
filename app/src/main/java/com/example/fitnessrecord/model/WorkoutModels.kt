@@ -6,6 +6,7 @@ import java.time.LocalDate
 
 const val DEFAULT_CUSTOM_ACTION_FOLDER_ID: Long = 1L
 const val DEFAULT_CUSTOM_ACTION_FOLDER_NAME: String = "默认"
+const val UNCATEGORIZED_CUSTOM_ACTION_FOLDER_DISPLAY_NAME: String = "未分类"
 
 @Immutable
 data class WorkoutDay(
@@ -292,6 +293,13 @@ data class CustomActionFolder(
     val isDefault: Boolean = false,
     val sortOrder: Int = 0,
 )
+
+fun CustomActionFolder.displayName(): String =
+    if (id == DEFAULT_CUSTOM_ACTION_FOLDER_ID || isDefault) {
+        UNCATEGORIZED_CUSTOM_ACTION_FOLDER_DISPLAY_NAME
+    } else {
+        name
+    }
 
 @Immutable
 data class AiProviderConfig(

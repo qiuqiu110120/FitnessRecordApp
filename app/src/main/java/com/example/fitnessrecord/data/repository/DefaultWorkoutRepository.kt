@@ -22,6 +22,7 @@ import com.example.fitnessrecord.model.TrendMode
 import com.example.fitnessrecord.model.WorkoutAction
 import com.example.fitnessrecord.model.WorkoutDay
 import com.example.fitnessrecord.model.WorkoutSet
+import com.example.fitnessrecord.model.displayName
 import com.example.fitnessrecord.model.hasMeaningfulContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -193,7 +194,11 @@ class DefaultWorkoutRepository(
         if (name.isBlank()) return CustomActionSaveResult.BlankName
 
         val targetFolder = workoutDao.getCustomActionFolder(action.folderId)
-            ?: return CustomActionSaveResult.FolderNotFound
+            ?: if (action.folderId == DEFAULT_CUSTOM_ACTION_FOLDER_ID) {
+                workoutDao.ensureDefaultFolder(System.currentTimeMillis())
+            } else {
+                return CustomActionSaveResult.FolderNotFound
+            }
         val normalizedName = name.normalizedActionName()
         val duplicateId = if (action.id == 0L) {
             workoutDao.findCustomActionIdByNormalizedName(targetFolder.id, normalizedName)
@@ -265,7 +270,7 @@ class DefaultWorkoutRepository(
                         normalizedName = normalizedName,
                         name = name.trim(),
                         type = QuickImportActionMatchType.New,
-                        folderName = defaultFolder.name
+                        folderName = defaultFolder.displayName()
                     )
                     1 -> {
                         val action = matches.first()
@@ -274,7 +279,7 @@ class DefaultWorkoutRepository(
                             name = name.trim(),
                             type = QuickImportActionMatchType.Matched,
                             customActionId = action.id,
-                            folderName = foldersById[action.folderId]?.name ?: "默认"
+                            folderName = foldersById[action.folderId]?.displayName() ?: "未分类"
                         )
                     }
                     else -> QuickImportActionMatch(
