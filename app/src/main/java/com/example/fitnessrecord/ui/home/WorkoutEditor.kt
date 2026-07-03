@@ -1,5 +1,6 @@
 package com.example.fitnessrecord.ui.home
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +16,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -28,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,10 +46,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
 import com.example.fitnessrecord.model.displayName
+import java.math.BigDecimal
 
 @Composable
 fun WorkoutEditorScreen(
@@ -76,11 +82,42 @@ fun WorkoutEditorScreen(
 ) {
     val addSetCounts = remember { mutableStateMapOf<Long, Int>() }
     val actionIds = day.actions.map { it.id }
+    val editorStateKey = day.date.toString()
+    var expandedActionIds by rememberSaveable(editorStateKey) { mutableStateOf<List<Long>>(emptyList()) }
+    var knownActionIds by rememberSaveable(editorStateKey) { mutableStateOf<List<Long>>(emptyList()) }
+    var hasInitializedExpansion by rememberSaveable(editorStateKey) { mutableStateOf(false) }
 
     LaunchedEffect(actionIds) {
         val validActionIds = actionIds.toSet()
         val obsoleteActionIds = addSetCounts.keys.filter { it !in validActionIds }
         obsoleteActionIds.forEach { addSetCounts.remove(it) }
+
+        val knownIdSet = knownActionIds.toSet()
+        val newActionIds = if (hasInitializedExpansion) {
+            actionIds.filter { it !in knownIdSet }
+        } else {
+            emptyList()
+        }
+        val defaultExpandedIds = if (hasInitializedExpansion) {
+            newActionIds
+        } else {
+            day.actions
+                .filter { it.summary().status != WorkoutActionUiStatus.Recorded }
+                .map { it.id }
+        }
+        expandedActionIds = (expandedActionIds.filter { it in validActionIds } + defaultExpandedIds)
+            .distinct()
+        knownActionIds = actionIds
+        hasInitializedExpansion = true
+    }
+
+    LaunchedEffect(saveStatus) {
+        if (saveStatus == EditorSaveStatus.ValidationError) {
+            val riskyActionIds = day.actions
+                .filter { it.summary().status != WorkoutActionUiStatus.Recorded }
+                .map { it.id }
+            expandedActionIds = (expandedActionIds + riskyActionIds).distinct()
+        }
     }
 
     LazyColumn(
@@ -115,7 +152,16 @@ fun WorkoutEditorScreen(
         }
 
         item(key = "title", contentType = "title") {
-            WorkoutActionTitle()
+            WorkoutActionTitle(
+                hasActions = day.actions.isNotEmpty(),
+                onExpandAll = { expandedActionIds = actionIds },
+                onCollapseCompleted = {
+                    val completedIds = day.actions
+                        .filter { it.summary().status == WorkoutActionUiStatus.Recorded }
+                        .mapTo(mutableSetOf()) { it.id }
+                    expandedActionIds = actionIds.filter { it !in completedIds }
+                }
+            )
         }
 
         if (day.actions.isEmpty()) {
@@ -129,9 +175,18 @@ fun WorkoutEditorScreen(
         ) { action ->
             val addSetCount = (addSetCounts[action.id] ?: WorkoutEditorLimits.MIN_ADD_SETS)
                 .coerceIn(WorkoutEditorLimits.MIN_ADD_SETS, WorkoutEditorLimits.MAX_ADD_SETS)
+            val isExpanded = action.id in expandedActionIds
             WorkoutActionCard(
                 action = action,
                 addSetCount = addSetCount,
+                isExpanded = isExpanded,
+                onExpandedChange = { expanded ->
+                    expandedActionIds = if (expanded) {
+                        (expandedActionIds + action.id).distinct()
+                    } else {
+                        expandedActionIds.filterNot { it == action.id }
+                    }
+                },
                 onAddSetCountChange = {
                     addSetCounts[action.id] = it.coerceIn(
                         WorkoutEditorLimits.MIN_ADD_SETS,
@@ -271,12 +326,36 @@ private val EditorSaveStatus.visibleMessage: String?
         EditorSaveStatus.SaveError -> "保存失败，点击重试"
         EditorSaveStatus.Idle,
         EditorSaveStatus.Editing -> null
-    }
+}
 
 @Composable
-private fun WorkoutActionTitle() {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(text = "训练动作", style = MaterialTheme.typography.titleLarge)
+private fun WorkoutActionTitle(
+    hasActions: Boolean,
+    onExpandAll: () -> Unit,
+    onCollapseCompleted: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = "训练动作", style = MaterialTheme.typography.titleLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = onExpandAll,
+                    enabled = hasActions
+                ) {
+                    Text("展开全部")
+                }
+                TextButton(
+                    onClick = onCollapseCompleted,
+                    enabled = hasActions
+                ) {
+                    Text("收起已完成")
+                }
+            }
+        }
         Text(
             text = "动作、组数、次数和重量会优先保存到本地 Room。",
             style = MaterialTheme.typography.bodySmall,
@@ -499,6 +578,8 @@ private fun EmptyWorkoutCard() {
 private fun WorkoutActionCard(
     action: WorkoutActionDraft,
     addSetCount: Int,
+    isExpanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     onAddSetCountChange: (Int) -> Unit,
     onNameChange: (String) -> Unit,
     onAddSets: () -> Unit,
@@ -507,12 +588,22 @@ private fun WorkoutActionCard(
     onDeleteAction: () -> Unit,
 ) {
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
+    val summary = action.summary()
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            WorkoutActionSummaryHeader(
+                action = action,
+                summary = summary,
+                isExpanded = isExpanded,
+                onToggleExpanded = { onExpandedChange(!isExpanded) }
+            )
+
+            if (!isExpanded) return@Column
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = action.name,
@@ -635,6 +726,177 @@ private fun WorkoutActionCard(
         )
     }
 }
+
+@Composable
+private fun WorkoutActionSummaryHeader(
+    action: WorkoutActionDraft,
+    summary: WorkoutActionSummary,
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggleExpanded),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = action.name.ifBlank { "未命名动作" },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                WorkoutActionStatusLabel(status = summary.status)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "${action.sets.size} 组",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                summary.firstSetText?.let { firstSetText ->
+                    Text(
+                        text = firstSetText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            summary.totalVolumeText?.let { totalVolumeText ->
+                Text(
+                    text = totalVolumeText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        IconButton(onClick = onToggleExpanded) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = if (isExpanded) "收起动作" else "展开动作"
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkoutActionStatusLabel(status: WorkoutActionUiStatus) {
+    val containerColor = when (status) {
+        WorkoutActionUiStatus.Recorded -> MaterialTheme.colorScheme.primaryContainer
+        WorkoutActionUiStatus.Pending -> MaterialTheme.colorScheme.tertiaryContainer
+        WorkoutActionUiStatus.Empty -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when (status) {
+        WorkoutActionUiStatus.Recorded -> MaterialTheme.colorScheme.onPrimaryContainer
+        WorkoutActionUiStatus.Pending -> MaterialTheme.colorScheme.onTertiaryContainer
+        WorkoutActionUiStatus.Empty -> MaterialTheme.colorScheme.onErrorContainer
+    }
+    Surface(
+        color = containerColor,
+        contentColor = contentColor,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Text(
+            text = status.label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1
+        )
+    }
+}
+
+private data class WorkoutActionSummary(
+    val status: WorkoutActionUiStatus,
+    val firstSetText: String?,
+    val totalVolumeText: String?,
+)
+
+private enum class WorkoutActionUiStatus(val label: String) {
+    Recorded("已记录"),
+    Pending("待填写"),
+    Empty("空动作"),
+}
+
+private fun WorkoutActionDraft.summary(): WorkoutActionSummary {
+    val hasName = name.isNotBlank()
+    val hasAnySetContent = sets.any { it.hasAnyInput() }
+    val hasValidSet = sets.any { it.hasValidContent() }
+    val hasPartialInput = sets.any { it.hasPartialInput() } || (!hasName && hasAnySetContent)
+    val status = when {
+        !hasName && !hasAnySetContent -> WorkoutActionUiStatus.Empty
+        hasName && hasValidSet && !hasPartialInput -> WorkoutActionUiStatus.Recorded
+        else -> WorkoutActionUiStatus.Pending
+    }
+    return WorkoutActionSummary(
+        status = status,
+        firstSetText = sets.firstNotNullOfOrNull { it.summaryTextOrNull() },
+        totalVolumeText = totalVolumeText()
+    )
+}
+
+private fun WorkoutSetDraft.hasAnyInput(): Boolean =
+    reps.isNotBlank() || weightKg.isNotBlank()
+
+private fun WorkoutSetDraft.hasValidContent(): Boolean =
+    reps.toPositiveIntOrNull() != null || weightKg.toPositiveDecimalOrNull() != null
+
+private fun WorkoutSetDraft.hasPartialInput(): Boolean {
+    val hasReps = reps.isNotBlank()
+    val hasWeight = weightKg.isNotBlank()
+    if (!hasReps && !hasWeight) return false
+    val repsValue = reps.toPositiveIntOrNull()
+    val weightValue = weightKg.toPositiveDecimalOrNull()
+    return repsValue == null || weightValue == null
+}
+
+private fun WorkoutSetDraft.summaryTextOrNull(): String? {
+    val parts = listOfNotNull(
+        reps.toPositiveIntOrNull()?.let { "$it 次" },
+        weightKg.toPositiveDecimalOrNull()?.cleanNumber()?.let { "$it kg" }
+    )
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" / ")
+}
+
+private fun WorkoutActionDraft.totalVolumeText(): String? {
+    val totalVolume = sets.fold(BigDecimal.ZERO) { total, set ->
+        val reps = set.reps.toPositiveIntOrNull()
+        val weight = set.weightKg.toPositiveDecimalOrNull()
+        if (reps != null && weight != null) {
+            total + weight.multiply(BigDecimal.valueOf(reps.toLong()))
+        } else {
+            total
+        }
+    }
+    return totalVolume
+        .takeIf { it > BigDecimal.ZERO }
+        ?.cleanNumber()
+        ?.let { "总容量 $it kg" }
+}
+
+private fun String.toPositiveIntOrNull(): Int? =
+    trim().toIntOrNull()?.takeIf { it > 0 }
+
+private fun String.toPositiveDecimalOrNull(): BigDecimal? {
+    val text = trim()
+    if (text.isEmpty()) return null
+    if (text == "." || text.endsWith(".")) return null
+    return text.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO }
+}
+
+private fun BigDecimal.cleanNumber(): String =
+    stripTrailingZeros().toPlainString()
 
 object WorkoutEditorLimits {
     const val MIN_ADD_SETS = 1
