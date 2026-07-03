@@ -2,6 +2,7 @@ package com.example.fitnessrecord.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -23,12 +25,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -38,6 +45,7 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+import kotlin.math.abs
 
 @Composable
 fun HomeCalendar(
@@ -48,9 +56,20 @@ fun HomeCalendar(
     onModeChange: (CalendarMode) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onToday: () -> Unit,
     onDateClick: (LocalDate) -> Unit,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    val today = LocalDate.now()
+    val swipeThresholdPx = with(LocalDensity.current) { 80.dp.toPx() }
+
+    Card(
+        modifier = Modifier.calendarSwipe(
+            thresholdPx = swipeThresholdPx,
+            onPrevious = onPrevious,
+            onNext = onNext
+        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -59,17 +78,19 @@ fun HomeCalendar(
                 mode = mode,
                 visibleMonth = visibleMonth,
                 selectedDate = selectedDate,
+                today = today,
                 onModeChange = onModeChange,
                 onPrevious = onPrevious,
-                onNext = onNext
+                onNext = onNext,
+                onToday = onToday
             )
 
             WeekHeader()
 
             if (mode == CalendarMode.Month) {
-                MonthGrid(visibleMonth, selectedDate, recordDates, onDateClick)
+                MonthGrid(visibleMonth, selectedDate, today, recordDates, onDateClick)
             } else {
-                WeekRow(selectedDate, recordDates, onDateClick)
+                WeekRow(selectedDate, today, recordDates, onDateClick)
             }
         }
     }
@@ -80,10 +101,13 @@ private fun CalendarToolbar(
     mode: CalendarMode,
     visibleMonth: YearMonth,
     selectedDate: LocalDate,
+    today: LocalDate,
     onModeChange: (CalendarMode) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onToday: () -> Unit,
 ) {
+    val isTodaySelected = selectedDate == today
     val title = remember(mode, visibleMonth, selectedDate) {
         if (mode == CalendarMode.Month) visibleMonth.format(monthFormatter) else weekTitle(selectedDate)
     }
@@ -114,6 +138,16 @@ private fun CalendarToolbar(
             IconButton(onClick = onNext) {
                 Icon(Icons.Outlined.ChevronRight, contentDescription = "下一页")
             }
+            TextButton(
+                onClick = onToday,
+                enabled = !isTodaySelected,
+                modifier = Modifier.semantics { contentDescription = "回到今天" },
+                colors = ButtonDefaults.textButtonColors(
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                )
+            ) {
+                Text("今天")
+            }
         }
     }
 }
@@ -138,6 +172,7 @@ private fun WeekHeader() {
 private fun MonthGrid(
     visibleMonth: YearMonth,
     selectedDate: LocalDate,
+    today: LocalDate,
     recordDates: Set<LocalDate>,
     onDateClick: (LocalDate) -> Unit,
 ) {
@@ -154,6 +189,7 @@ private fun MonthGrid(
                             CalendarDayCell(
                                 date = date,
                                 selected = date == selectedDate,
+                                today = today,
                                 hasRecord = date in recordDates,
                                 onClick = { onDateClick(date) }
                             )
@@ -168,6 +204,7 @@ private fun MonthGrid(
 @Composable
 private fun WeekRow(
     selectedDate: LocalDate,
+    today: LocalDate,
     recordDates: Set<LocalDate>,
     onDateClick: (LocalDate) -> Unit,
 ) {
@@ -182,6 +219,7 @@ private fun WeekRow(
                 CalendarDayCell(
                     date = date,
                     selected = date == selectedDate,
+                    today = today,
                     hasRecord = date in recordDates,
                     onClick = { onDateClick(date) }
                 )
@@ -194,13 +232,14 @@ private fun WeekRow(
 private fun CalendarDayCell(
     date: LocalDate,
     selected: Boolean,
+    today: LocalDate,
     hasRecord: Boolean,
     onClick: () -> Unit,
 ) {
     val background = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
     val contentColor = when {
         selected -> MaterialTheme.colorScheme.onPrimary
-        date == LocalDate.now() -> MaterialTheme.colorScheme.primary
+        date == today -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurface
     }
 
@@ -237,7 +276,38 @@ private fun YearMonth.calendarRows(): List<List<LocalDate?>> {
     return dates.chunked(7).map { row -> row + List(7 - row.size) { null } }
 }
 
-private val monthFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy 年 M 月", Locale.CHINA)
+private fun Modifier.calendarSwipe(
+    thresholdPx: Float,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+): Modifier = pointerInput(thresholdPx, onPrevious, onNext) {
+    var totalX = 0f
+    var totalY = 0f
+    detectDragGestures(
+        onDragStart = {
+            totalX = 0f
+            totalY = 0f
+        },
+        onDragEnd = {
+            val isHorizontalSwipe = abs(totalX) > thresholdPx && abs(totalX) > abs(totalY) * 1.5f
+            if (isHorizontalSwipe) {
+                if (totalX < 0f) onNext() else onPrevious()
+            }
+            totalX = 0f
+            totalY = 0f
+        },
+        onDragCancel = {
+            totalX = 0f
+            totalY = 0f
+        },
+        onDrag = { _, dragAmount ->
+            totalX += dragAmount.x
+            totalY += dragAmount.y
+        }
+    )
+}
+
+private val monthFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy年M月", Locale.CHINA)
 
 private fun weekTitle(anchor: LocalDate): String {
     val start = anchor.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))

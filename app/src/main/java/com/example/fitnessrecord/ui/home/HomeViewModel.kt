@@ -177,36 +177,36 @@ class HomeViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
     fun selectDate(date: LocalDate) {
-        if (selectedDate.value == date) return
-        selectedDate.value = date
-        val month = YearMonth.from(date)
-        if (visibleMonth.value != month) {
-            visibleMonth.value = month
-        }
+        updateSelectedDate(date)
     }
 
     fun setCalendarMode(mode: CalendarMode) {
         if (calendarMode.value != mode) {
             calendarMode.value = mode
-        }
-    }
-
-    fun previousPeriod() {
-        if (calendarMode.value == CalendarMode.Month) {
-            visibleMonth.value = visibleMonth.value.minusMonths(1)
-        } else {
-            selectedDate.value = selectedDate.value.minusWeeks(1)
             visibleMonth.value = YearMonth.from(selectedDate.value)
         }
     }
 
-    fun nextPeriod() {
-        if (calendarMode.value == CalendarMode.Month) {
-            visibleMonth.value = visibleMonth.value.plusMonths(1)
+    fun goToPreviousCalendarPage() {
+        val newDate = if (calendarMode.value == CalendarMode.Month) {
+            selectedDate.value.minusMonths(1)
         } else {
-            selectedDate.value = selectedDate.value.plusWeeks(1)
-            visibleMonth.value = YearMonth.from(selectedDate.value)
+            selectedDate.value.minusWeeks(1)
         }
+        updateSelectedDate(newDate)
+    }
+
+    fun goToNextCalendarPage() {
+        val newDate = if (calendarMode.value == CalendarMode.Month) {
+            selectedDate.value.plusMonths(1)
+        } else {
+            selectedDate.value.plusWeeks(1)
+        }
+        updateSelectedDate(newDate)
+    }
+
+    fun goToToday() {
+        updateSelectedDate(LocalDate.now())
     }
 
     fun startEditing(day: WorkoutDay) {
@@ -669,6 +669,11 @@ class HomeViewModel(
         if (editorDraft.value != updated) {
             editorDraft.value = updated
         }
+    }
+
+    private fun updateSelectedDate(date: LocalDate) {
+        selectedDate.value = date
+        visibleMonth.value = YearMonth.from(date)
     }
 
     private fun newUniqueLocalSetId(usedIds: MutableSet<Long>): Long {

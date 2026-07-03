@@ -160,8 +160,9 @@ fun HomeRoute(
                 uiState = uiState,
                 onOpenSettings = { showActionSettings = true },
                 onCalendarModeChange = viewModel::setCalendarMode,
-                onPreviousPeriod = viewModel::previousPeriod,
-                onNextPeriod = viewModel::nextPeriod,
+                onPreviousPage = viewModel::goToPreviousCalendarPage,
+                onNextPage = viewModel::goToNextCalendarPage,
+                onToday = viewModel::goToToday,
                 onSelectDate = viewModel::selectDate,
                 onEditDate = { viewModel.startEditing(uiState.selectedWorkoutDay) }
             )
@@ -198,8 +199,9 @@ private fun HomeScreen(
     uiState: HomeUiState,
     onOpenSettings: () -> Unit,
     onCalendarModeChange: (CalendarMode) -> Unit,
-    onPreviousPeriod: () -> Unit,
-    onNextPeriod: () -> Unit,
+    onPreviousPage: () -> Unit,
+    onNextPage: () -> Unit,
+    onToday: () -> Unit,
     onSelectDate: (java.time.LocalDate) -> Unit,
     onEditDate: () -> Unit,
 ) {
@@ -219,8 +221,9 @@ private fun HomeScreen(
                 selectedDate = uiState.selectedDate,
                 recordDates = uiState.recordDates,
                 onModeChange = onCalendarModeChange,
-                onPrevious = onPreviousPeriod,
-                onNext = onNextPeriod,
+                onPrevious = onPreviousPage,
+                onNext = onNextPage,
+                onToday = onToday,
                 onDateClick = onSelectDate
             )
         }
