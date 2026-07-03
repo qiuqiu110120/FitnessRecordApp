@@ -1,6 +1,5 @@
 package com.example.fitnessrecord.ui.home
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,11 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -25,7 +24,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -132,11 +130,17 @@ fun WorkoutEditorScreen(
             key = { it.id },
             contentType = { "workout-action" }
         ) { action ->
-            val addSetCount = addSetCounts[action.id] ?: DefaultAddSetCount
+            val addSetCount = (addSetCounts[action.id] ?: WorkoutEditorLimits.MIN_ADD_SETS)
+                .coerceIn(WorkoutEditorLimits.MIN_ADD_SETS, WorkoutEditorLimits.MAX_ADD_SETS)
             WorkoutActionCard(
                 action = action,
                 addSetCount = addSetCount,
-                onAddSetCountChange = { addSetCounts[action.id] = it },
+                onAddSetCountChange = {
+                    addSetCounts[action.id] = it.coerceIn(
+                        WorkoutEditorLimits.MIN_ADD_SETS,
+                        WorkoutEditorLimits.MAX_ADD_SETS
+                    )
+                },
                 onNameChange = { onActionNameChange(action.id, it) },
                 onAddSets = { onAddSets(action.id, addSetCount) },
                 onSetChange = { set, reps, weight -> onSetChange(action.id, set.id, reps, weight) },
@@ -611,21 +615,39 @@ private fun WorkoutActionCard(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "本次添加组数",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium
+                )
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("添加组数", style = MaterialTheme.typography.labelMedium)
-                    AddSetCountOptions.forEach { count ->
-                        FilterChip(
-                            selected = addSetCount == count,
-                            onClick = { onAddSetCountChange(count) },
-                            label = { Text("${count}组") }
-                        )
+                    IconButton(
+                        onClick = { onAddSetCountChange(addSetCount - 1) },
+                        enabled = addSetCount > WorkoutEditorLimits.MIN_ADD_SETS,
+                        modifier = Modifier.width(40.dp)
+                    ) {
+                        Icon(Icons.Outlined.Remove, contentDescription = "减少组数")
+                    }
+                    Text(
+                        text = addSetCount.toString(),
+                        modifier = Modifier.width(28.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    IconButton(
+                        onClick = { onAddSetCountChange(addSetCount + 1) },
+                        enabled = addSetCount < WorkoutEditorLimits.MAX_ADD_SETS,
+                        modifier = Modifier.width(40.dp)
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = "增加组数")
                     }
                 }
 
@@ -662,9 +684,10 @@ private fun WorkoutActionCard(
     }
 }
 
-private const val DefaultAddSetCount = 1
-
-private val AddSetCountOptions = 1..5
+object WorkoutEditorLimits {
+    const val MIN_ADD_SETS = 1
+    const val MAX_ADD_SETS = 20
+}
 
 private fun addSetButtonText(count: Int): String =
-    if (count == 1) "添加一组" else "添加 $count 组"
+    "添加 $count 组"

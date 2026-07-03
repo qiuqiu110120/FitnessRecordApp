@@ -310,8 +310,10 @@ class HomeViewModel(
     }
 
     fun addSets(actionId: Long, count: Int) {
-        // UI only exposes 1..5; clamp here as a ViewModel safety guard.
-        val safeCount = count.coerceIn(1, 5)
+        val safeCount = count.coerceIn(
+            WorkoutEditorLimits.MIN_ADD_SETS,
+            WorkoutEditorLimits.MAX_ADD_SETS
+        )
         var foundAction = false
         updateDraft { day ->
             day.copy(actions = day.actions.map { action ->
