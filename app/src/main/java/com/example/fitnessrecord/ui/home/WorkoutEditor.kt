@@ -54,20 +54,17 @@ fun WorkoutEditorScreen(
     saveStatus: EditorSaveStatus,
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
-    newActionTargetFolderId: Long,
     customActions: List<CustomAction>,
     hasAnyCustomActions: Boolean,
-    actionDraftName: String,
+    temporaryActionName: String,
     message: String?,
     onSelectFolder: (Long?) -> Unit,
-    onNewActionTargetFolderChange: (Long) -> Unit,
-    onActionDraftNameChange: (String) -> Unit,
+    onTemporaryActionNameChange: (String) -> Unit,
     onTrainingTypeChange: (String) -> Unit,
     onDurationChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
-    onAddAction: () -> Unit,
     onAddCustomAction: (CustomAction) -> Unit,
-    onCreateActionAndAdd: () -> Unit,
+    onAddTemporaryAction: () -> Unit,
     onActionNameChange: (Long, String) -> Unit,
     onDeleteAction: (Long) -> Unit,
     onAddSets: (Long, Int) -> Unit,
@@ -153,16 +150,13 @@ fun WorkoutEditorScreen(
             AddActionsPanel(
                 folders = folders,
                 selectedFolderId = selectedFolderId,
-                newActionTargetFolderId = newActionTargetFolderId,
                 customActions = customActions,
                 hasAnyCustomActions = hasAnyCustomActions,
-                actionDraftName = actionDraftName,
+                temporaryActionName = temporaryActionName,
                 onSelectFolder = onSelectFolder,
-                onNewActionTargetFolderChange = onNewActionTargetFolderChange,
-                onActionDraftNameChange = onActionDraftNameChange,
-                onAddAction = onAddAction,
+                onTemporaryActionNameChange = onTemporaryActionNameChange,
                 onAddCustomAction = onAddCustomAction,
-                onCreateActionAndAdd = onCreateActionAndAdd
+                onAddTemporaryAction = onAddTemporaryAction
             )
         }
 
@@ -296,30 +290,30 @@ private fun WorkoutActionTitle() {
 private fun AddActionsPanel(
     folders: List<CustomActionFolder>,
     selectedFolderId: Long?,
-    newActionTargetFolderId: Long,
     customActions: List<CustomAction>,
     hasAnyCustomActions: Boolean,
-    actionDraftName: String,
+    temporaryActionName: String,
     onSelectFolder: (Long?) -> Unit,
-    onNewActionTargetFolderChange: (Long) -> Unit,
-    onActionDraftNameChange: (String) -> Unit,
-    onAddAction: () -> Unit,
+    onTemporaryActionNameChange: (String) -> Unit,
     onAddCustomAction: (CustomAction) -> Unit,
-    onCreateActionAndAdd: () -> Unit,
+    onAddTemporaryAction: () -> Unit,
 ) {
     val selectedFolder = folders.firstOrNull { it.id == selectedFolderId }
     val folderName = selectedFolder?.displayName() ?: "全部动作"
-    val targetFolder = folders.firstOrNull { it.id == newActionTargetFolderId }
     var folderExpanded by rememberSaveable { mutableStateOf(false) }
     var actionExpanded by rememberSaveable { mutableStateOf(false) }
-    var targetExpanded by rememberSaveable { mutableStateOf(false) }
     var selectedActionId by rememberSaveable { mutableStateOf<Long?>(null) }
     val selectedAction = customActions.firstOrNull { it.id == selectedActionId }
     val actionNameCounts = customActions.groupingBy { it.name }.eachCount()
     val emptyActionText = when {
         customActions.isNotEmpty() -> "请选择动作"
         !hasAnyCustomActions -> "动作库暂无动作"
-        else -> "当前文件夹没有动作"
+        else -> "当前分类没有动作"
+    }
+    val emptyHintText = when {
+        !hasAnyCustomActions -> "动作库暂无动作，可在动作库总览维护常用动作，或添加临时动作。"
+        customActions.isEmpty() -> "当前分类没有动作。"
+        else -> null
     }
 
     LaunchedEffect(selectedFolderId) {
@@ -338,24 +332,13 @@ private fun AddActionsPanel(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("继续添加", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "从文件夹中选择动作加入今天，临时动作只保存到本次训练。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Button(onClick = onAddAction) {
-                    Icon(Icons.Outlined.Add, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("临时动作")
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("继续添加", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "从动作库选择已有动作，或添加只属于本次训练的临时动作。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             ExposedDropdownMenuBox(
@@ -369,7 +352,7 @@ private fun AddActionsPanel(
                         .menuAnchor()
                         .fillMaxWidth(),
                     readOnly = true,
-                    label = { Text("文件夹") },
+                    label = { Text("分类") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = folderExpanded) },
                     colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
                 )
@@ -452,63 +435,32 @@ private fun AddActionsPanel(
                 }
             }
 
-            if (customActions.isEmpty()) {
+            emptyHintText?.let { hint ->
                 Text(
-                    text = "当前筛选下还没有动作。",
+                    text = hint,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("保存到动作库并加入", style = MaterialTheme.typography.titleSmall)
+                Text("添加临时动作", style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
-                    value = actionDraftName,
-                    onValueChange = onActionDraftNameChange,
+                    value = temporaryActionName,
+                    onValueChange = onTemporaryActionNameChange,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("动作名称") },
+                    label = { Text("临时动作名称") },
+                    placeholder = { Text("只保存到本次训练") },
                     singleLine = true
                 )
-                ExposedDropdownMenuBox(
-                    expanded = targetExpanded,
-                    onExpandedChange = { if (folders.isNotEmpty()) targetExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = targetFolder?.displayName().orEmpty(),
-                        onValueChange = {},
-                        modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth(),
-                        readOnly = true,
-                        enabled = folders.isNotEmpty(),
-                        label = { Text("保存到") },
-                        placeholder = { Text("文件夹加载中") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = targetExpanded) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = targetExpanded,
-                        onDismissRequest = { targetExpanded = false }
-                    ) {
-                        folders.forEach { folder ->
-                            DropdownMenuItem(
-                                text = { Text(folder.displayName()) },
-                                onClick = {
-                                    onNewActionTargetFolderChange(folder.id)
-                                    targetExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onCreateActionAndAdd,
-                    enabled = actionDraftName.isNotBlank() && targetFolder != null
+                    onClick = onAddTemporaryAction,
+                    enabled = temporaryActionName.isNotBlank()
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("保存并加入")
+                    Text("添加临时动作")
                 }
             }
         }

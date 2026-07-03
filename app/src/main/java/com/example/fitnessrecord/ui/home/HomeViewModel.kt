@@ -57,6 +57,7 @@ class HomeViewModel(
     private val selectedActionFolderId = MutableStateFlow<Long?>(null)
     private val newActionTargetFolderId = MutableStateFlow(DEFAULT_CUSTOM_ACTION_FOLDER_ID)
     private val customActionDraft = MutableStateFlow("")
+    private val temporaryActionName = MutableStateFlow("")
     private val customActionFolderDraft = MutableStateFlow("")
     private val actionLibraryMessage = MutableStateFlow<String?>(null)
     private val importState = MutableStateFlow(QuickImportUiState())
@@ -89,8 +90,18 @@ class HomeViewModel(
         HomeDateState(selectedDate = date, visibleMonth = month, calendarMode = mode)
     }.distinctUntilChanged()
 
-    private val editorState = combine(editingDate, editorDraft, saveStatus) { editingDate, editorDraft, saveStatus ->
-        HomeEditorState(editingDate = editingDate, editorDraft = editorDraft, saveStatus = saveStatus)
+    private val editorState = combine(
+        editingDate,
+        editorDraft,
+        saveStatus,
+        temporaryActionName
+    ) { editingDate, editorDraft, saveStatus, temporaryActionName ->
+        HomeEditorState(
+            editingDate = editingDate,
+            editorDraft = editorDraft,
+            saveStatus = saveStatus,
+            temporaryActionName = temporaryActionName
+        )
     }.distinctUntilChanged()
 
     private val customActionContentState = combine(
@@ -161,6 +172,7 @@ class HomeViewModel(
             editingDate = contentState.editorState.editingDate,
             editorDraft = contentState.editorState.editorDraft,
             saveStatus = contentState.editorState.saveStatus,
+            temporaryActionName = contentState.editorState.temporaryActionName,
             recordDates = contentState.recordDates,
             selectedWorkoutDay = contentState.selectedWorkoutDay,
             customActionFolders = customActionState.customActionFolders,
@@ -210,6 +222,7 @@ class HomeViewModel(
     }
 
     fun startEditing(day: WorkoutDay) {
+        temporaryActionName.value = ""
         editingDate.value = day.date
         originalEditorDay.value = day
         lastSavedDay = day
@@ -227,24 +240,12 @@ class HomeViewModel(
         editorDraft.value = null
         originalEditorDay.value = null
         lastSavedDay = null
+        temporaryActionName.value = ""
         saveStatus.value = EditorSaveStatus.Idle
     }
 
     fun requestCloseEditor() {
         requestSave(immediate = true, exitAfterSave = true)
-    }
-
-    fun addAction() {
-        updateDraft { day ->
-            day.copy(
-                actions = day.actions + WorkoutActionDraft(
-                    id = newLocalId(),
-                    name = "",
-                    sets = listOf(WorkoutSetDraft(id = newLocalId()))
-                )
-            )
-        }
-        requestSave(immediate = true)
     }
 
     fun addActionFromTemplate(action: CustomAction) {
@@ -261,22 +262,27 @@ class HomeViewModel(
         requestSave(immediate = true)
     }
 
-    fun createActionAndAddToDraft() {
-        val name = customActionDraft.value.trim()
-        if (name.isBlank()) return
-        val folderId = currentActionTargetFolderId()
-        viewModelScope.launch {
-            when (val result = workoutRepository.saveCustomAction(CustomAction(folderId = folderId, name = name))) {
-                CustomActionSaveResult.BlankName -> actionLibraryMessage.value = "动作名称不能为空"
-                CustomActionSaveResult.DuplicateName -> actionLibraryMessage.value = "保存目标已有同名动作"
-                CustomActionSaveResult.FolderNotFound -> actionLibraryMessage.value = "目标文件夹不存在"
-                is CustomActionSaveResult.Saved -> {
-                    customActionDraft.value = ""
-                    setActionSavedMessage(result.action)
-                    addActionFromTemplate(result.action)
-                }
-            }
+    fun updateTemporaryActionName(name: String) {
+        if (temporaryActionName.value != name) {
+            temporaryActionName.value = name
         }
+    }
+
+    fun addTemporaryActionToDraft() {
+        val name = temporaryActionName.value.trim()
+        if (name.isBlank()) return
+        updateDraft { day ->
+            day.copy(
+                actions = day.actions + WorkoutActionDraft(
+                    id = newLocalId(),
+                    customActionId = null,
+                    name = name,
+                    sets = listOf(WorkoutSetDraft(id = newLocalId()))
+                )
+            )
+        }
+        temporaryActionName.value = ""
+        requestSave(immediate = true)
     }
     fun updateActionName(actionId: Long, name: String) {
         updateDraft { day ->
@@ -772,6 +778,7 @@ private data class HomeEditorState(
     val editingDate: LocalDate?,
     val editorDraft: WorkoutEditorDraft?,
     val saveStatus: EditorSaveStatus,
+    val temporaryActionName: String,
 )
 
 @Immutable
@@ -818,6 +825,7 @@ data class HomeUiState(
     val editingDate: LocalDate? = null,
     val editorDraft: WorkoutEditorDraft? = null,
     val saveStatus: EditorSaveStatus = EditorSaveStatus.Idle,
+    val temporaryActionName: String = "",
     val recordDates: Set<LocalDate> = emptySet(),
     val selectedWorkoutDay: WorkoutDay = WorkoutDay(LocalDate.now()),
     val customActionFolders: List<CustomActionFolder> = emptyList(),
