@@ -1,5 +1,14 @@
 package com.example.fitnessrecord.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -27,17 +36,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -46,6 +61,9 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import kotlin.math.abs
+
+private const val CALENDAR_ANIMATION_DURATION_MS = 200
+private const val CALENDAR_CELL_SCALE_DURATION_MS = 160
 
 @Composable
 fun HomeCalendar(
@@ -61,12 +79,34 @@ fun HomeCalendar(
 ) {
     val today = LocalDate.now()
     val swipeThresholdPx = with(LocalDensity.current) { 80.dp.toPx() }
+    var pageDirection by remember { mutableStateOf(CalendarPageDirection.Neutral) }
+
+    val goPrevious = {
+        pageDirection = CalendarPageDirection.Previous
+        onPrevious()
+    }
+    val goNext = {
+        pageDirection = CalendarPageDirection.Next
+        onNext()
+    }
+    val goToday = {
+        pageDirection = CalendarPageDirection.Neutral
+        onToday()
+    }
+    val changeMode: (CalendarMode) -> Unit = { calendarMode ->
+        pageDirection = CalendarPageDirection.Neutral
+        onModeChange(calendarMode)
+    }
+    val selectDate: (LocalDate) -> Unit = { date ->
+        pageDirection = CalendarPageDirection.Neutral
+        onDateClick(date)
+    }
 
     Card(
         modifier = Modifier.calendarSwipe(
             thresholdPx = swipeThresholdPx,
-            onPrevious = onPrevious,
-            onNext = onNext
+            onPrevious = goPrevious,
+            onNext = goNext
         ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -79,19 +119,23 @@ fun HomeCalendar(
                 visibleMonth = visibleMonth,
                 selectedDate = selectedDate,
                 today = today,
-                onModeChange = onModeChange,
-                onPrevious = onPrevious,
-                onNext = onNext,
-                onToday = onToday
+                onModeChange = changeMode,
+                onPrevious = goPrevious,
+                onNext = goNext,
+                onToday = goToday
             )
 
             WeekHeader()
 
-            if (mode == CalendarMode.Month) {
-                MonthGrid(visibleMonth, selectedDate, today, recordDates, onDateClick)
-            } else {
-                WeekRow(selectedDate, today, recordDates, onDateClick)
-            }
+            AnimatedCalendarContent(
+                mode = mode,
+                visibleMonth = visibleMonth,
+                selectedDate = selectedDate,
+                today = today,
+                recordDates = recordDates,
+                pageDirection = pageDirection,
+                onDateClick = selectDate
+            )
         }
     }
 }
@@ -108,6 +152,15 @@ private fun CalendarToolbar(
     onToday: () -> Unit,
 ) {
     val isTodaySelected = selectedDate == today
+    val todayButtonColor by animateColorAsState(
+        targetValue = if (isTodaySelected) {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+        } else {
+            MaterialTheme.colorScheme.primary
+        },
+        animationSpec = tween(CALENDAR_ANIMATION_DURATION_MS),
+        label = "Today button color"
+    )
     val title = remember(mode, visibleMonth, selectedDate) {
         if (mode == CalendarMode.Month) visibleMonth.format(monthFormatter) else weekTitle(selectedDate)
     }
@@ -143,7 +196,8 @@ private fun CalendarToolbar(
                 enabled = !isTodaySelected,
                 modifier = Modifier.semantics { contentDescription = "回到今天" },
                 colors = ButtonDefaults.textButtonColors(
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    contentColor = todayButtonColor,
+                    disabledContentColor = todayButtonColor
                 )
             ) {
                 Text("今天")
@@ -163,6 +217,60 @@ private fun WeekHeader() {
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnimatedCalendarContent(
+    mode: CalendarMode,
+    visibleMonth: YearMonth,
+    selectedDate: LocalDate,
+    today: LocalDate,
+    recordDates: Set<LocalDate>,
+    pageDirection: CalendarPageDirection,
+    onDateClick: (LocalDate) -> Unit,
+) {
+    AnimatedContent(
+        targetState = CalendarContentKey(
+            mode = mode,
+            selectedDate = selectedDate,
+            visibleMonth = visibleMonth
+        ),
+        transitionSpec = {
+            val animationSpec = tween<IntOffset>(CALENDAR_ANIMATION_DURATION_MS)
+            val fadeSpec = tween<Float>(CALENDAR_ANIMATION_DURATION_MS)
+            when (pageDirection) {
+                CalendarPageDirection.Next -> {
+                    (slideInHorizontally(animationSpec) { 48 } + fadeIn(fadeSpec))
+                        .togetherWith(slideOutHorizontally(animationSpec) { -48 } + fadeOut(fadeSpec))
+                }
+                CalendarPageDirection.Previous -> {
+                    (slideInHorizontally(animationSpec) { -48 } + fadeIn(fadeSpec))
+                        .togetherWith(slideOutHorizontally(animationSpec) { 48 } + fadeOut(fadeSpec))
+                }
+                CalendarPageDirection.Neutral -> {
+                    fadeIn(fadeSpec).togetherWith(fadeOut(fadeSpec))
+                }
+            }
+        },
+        label = "Calendar content"
+    ) { contentKey ->
+        if (contentKey.mode == CalendarMode.Month) {
+            MonthGrid(
+                visibleMonth = contentKey.visibleMonth,
+                selectedDate = contentKey.selectedDate,
+                today = today,
+                recordDates = recordDates,
+                onDateClick = onDateClick
+            )
+        } else {
+            WeekRow(
+                selectedDate = contentKey.selectedDate,
+                today = today,
+                recordDates = recordDates,
+                onDateClick = onDateClick
             )
         }
     }
@@ -236,19 +344,43 @@ private fun CalendarDayCell(
     hasRecord: Boolean,
     onClick: () -> Unit,
 ) {
-    val background = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
-    val contentColor = when {
+    val targetBackground = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val targetContentColor = when {
         selected -> MaterialTheme.colorScheme.onPrimary
         date == today -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val background by animateColorAsState(
+        targetValue = targetBackground,
+        animationSpec = tween(CALENDAR_ANIMATION_DURATION_MS),
+        label = "Calendar day background"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = targetContentColor,
+        animationSpec = tween(CALENDAR_ANIMATION_DURATION_MS),
+        label = "Calendar day content color"
+    )
+    val selectedScale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0.96f,
+        animationSpec = tween(CALENDAR_CELL_SCALE_DURATION_MS),
+        label = "Calendar selected day scale"
+    )
+    val recordDotAlpha by animateFloatAsState(
+        targetValue = if (hasRecord) 1f else 0f,
+        animationSpec = tween(CALENDAR_ANIMATION_DURATION_MS),
+        label = "Calendar record dot alpha"
+    )
 
     Column(
         modifier = Modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(8.dp))
-            .background(background)
             .clickable(onClick = onClick)
+            .graphicsLayer {
+                scaleX = selectedScale
+                scaleY = selectedScale
+            }
+            .background(background)
             .padding(4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -264,7 +396,8 @@ private fun CalendarDayCell(
                 .padding(top = 4.dp)
                 .size(5.dp)
                 .clip(CircleShape)
-                .background(if (hasRecord) contentColor else Color.Transparent)
+                .alpha(recordDotAlpha)
+                .background(contentColor)
         )
     }
 }
@@ -306,6 +439,18 @@ private fun Modifier.calendarSwipe(
         }
     )
 }
+
+private enum class CalendarPageDirection {
+    Previous,
+    Next,
+    Neutral,
+}
+
+private data class CalendarContentKey(
+    val mode: CalendarMode,
+    val selectedDate: LocalDate,
+    val visibleMonth: YearMonth,
+)
 
 private val monthFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy年M月", Locale.CHINA)
 
