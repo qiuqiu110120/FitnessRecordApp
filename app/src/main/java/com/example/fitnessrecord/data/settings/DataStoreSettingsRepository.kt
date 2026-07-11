@@ -1,4 +1,4 @@
-﻿package com.example.fitnessrecord.data.settings
+package com.example.fitnessrecord.data.settings
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -9,6 +9,8 @@ import com.example.fitnessrecord.model.AiAdvicePromptConfig
 import com.example.fitnessrecord.model.AiAdvicePromptPreset
 import com.example.fitnessrecord.model.AiProviderConfig
 import com.example.fitnessrecord.model.normalizeAiAdvicePromptConfig
+import com.example.fitnessrecord.ui.theme.DefaultThemeColorKey
+import com.example.fitnessrecord.ui.theme.normalizeThemeColorSelectionForStorage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -40,7 +42,7 @@ class DataStoreSettingsRepository(
     }
 
     override val themeColorKey: Flow<String> = dataStore.data.map { preferences ->
-        preferences[THEME_COLOR] ?: "green"
+        preferences[THEME_COLOR]?.let(::normalizeThemeColorSelectionForStorage) ?: DefaultThemeColorKey
     }
 
     override val ignoredUpdateTag: Flow<String?> = dataStore.data.map { preferences ->
@@ -83,8 +85,11 @@ class DataStoreSettingsRepository(
     }
 
     override suspend fun saveThemeColorKey(key: String) {
+        val normalized = requireNotNull(normalizeThemeColorSelectionForStorage(key)) {
+            "Invalid theme color selection"
+        }
         dataStore.edit { preferences ->
-            preferences[THEME_COLOR] = key
+            preferences[THEME_COLOR] = normalized
         }
     }
 

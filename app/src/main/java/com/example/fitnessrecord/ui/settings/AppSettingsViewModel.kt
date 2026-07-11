@@ -1,4 +1,4 @@
-﻿package com.example.fitnessrecord.ui.settings
+package com.example.fitnessrecord.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -6,6 +6,7 @@ import com.example.fitnessrecord.AppVersion
 import com.example.fitnessrecord.data.repository.AppRelease
 import com.example.fitnessrecord.data.repository.UpdateRepository
 import com.example.fitnessrecord.data.settings.SettingsRepository
+import com.example.fitnessrecord.ui.theme.DefaultThemeColorKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +21,7 @@ data class AppSettingsUiState(
     val availableUpdate: AppRelease? = null,
 ) {
     val isThemeLoaded: Boolean = themeColorKey != null
-    val resolvedThemeColorKey: String = themeColorKey ?: "green"
+    val resolvedThemeColorKey: String = themeColorKey ?: DefaultThemeColorKey
 }
 
 class AppSettingsViewModel(
@@ -142,4 +143,3 @@ private fun String.versionParts(): List<Int>? =
         ?.value
         ?.split(".")
         ?.map { it.toInt() }
-

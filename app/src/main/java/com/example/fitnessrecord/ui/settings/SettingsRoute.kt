@@ -55,6 +55,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1083,7 +1084,9 @@ private fun ThemeSettingsCard(
         mutableStateOf(if (isCustomThemeColor(themeColorKey)) themeColorKey else "")
     }
     var showCustomColorError by rememberSaveable { mutableStateOf(false) }
-    val normalizedCustomColor = normalizeThemeColorInput(customColorInput)
+    val normalizedCustomColor = remember(customColorInput) {
+        normalizeThemeColorInput(customColorInput)
+    }
     val activeSeedColor = themeSeedColor(themeColorKey)
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
@@ -1148,7 +1151,7 @@ private fun ThemeSettingsCard(
                         if (showCustomColorError) {
                             "请输入有效颜色，例如 #1565C0、1565C0 或 rgb(21,101,192)"
                         } else {
-                            "支持 HEX、ARGB HEX 和 RGB 数值。应用后全局主题会同步更新。"
+                            "支持 6 位 HEX 和 RGB 数值。应用后全局主题会同步更新。"
                         }
                     )
                 },
@@ -1157,6 +1160,7 @@ private fun ThemeSettingsCard(
             )
             Button(
                 modifier = Modifier.fillMaxWidth(),
+                enabled = normalizedCustomColor != null,
                 onClick = {
                     val normalized = normalizedCustomColor
                     if (normalized == null) {

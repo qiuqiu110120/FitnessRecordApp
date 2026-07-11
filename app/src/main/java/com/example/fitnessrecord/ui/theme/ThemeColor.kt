@@ -1,7 +1,7 @@
 package com.example.fitnessrecord.ui.theme
 
 import androidx.compose.ui.graphics.Color
-import kotlin.math.roundToInt
+import java.util.Locale
 
 data class ThemeColorOption(
     val key: String,
@@ -9,8 +9,10 @@ data class ThemeColorOption(
     val color: Color,
 )
 
+const val DefaultThemeColorKey = "green"
+
 val ThemeColorOptions = listOf(
-    ThemeColorOption("green", "松绿", Color(0xFF2E7D32)),
+    ThemeColorOption(DefaultThemeColorKey, "松绿", Color(0xFF2E7D32)),
     ThemeColorOption("blue", "湖蓝", Color(0xFF1565C0)),
     ThemeColorOption("purple", "紫色", Color(0xFF6A1B9A)),
     ThemeColorOption("orange", "暖橙", Color(0xFFEF6C00)),
@@ -21,54 +23,76 @@ fun themeColorOption(key: String): ThemeColorOption =
     ThemeColorOptions.firstOrNull { it.key == key } ?: ThemeColorOptions.first()
 
 fun themeSeedColor(value: String): Color =
-    parseThemeColor(value) ?: themeColorOption(value).color
+    ThemeColorOptions.firstOrNull { it.key == value }?.color
+        ?: decodePersistedThemeColor(value)?.let(::createThemeColor)
+        ?: themeColorOption(DefaultThemeColorKey).color
 
 fun normalizeThemeColorInput(value: String): String? =
-    parseThemeColor(value)?.toHexString()
+    when (val result = parseThemeColorInput(value)) {
+        is ThemeColorParseResult.Valid -> result.hex
+        else -> null
+    }
+
+fun normalizeThemeColorSelectionForStorage(value: String): String? =
+    ThemeColorOptions.firstOrNull { it.key == value }?.key ?: decodePersistedThemeColor(value)
+
+fun decodePersistedThemeColor(value: String): String? =
+    value.takeIf(::isCanonicalHexColor)
 
 fun isCustomThemeColor(value: String): Boolean =
-    ThemeColorOptions.none { it.key == value } && parseThemeColor(value) != null
+    ThemeColorOptions.none { it.key == value } && decodePersistedThemeColor(value) != null
 
-private fun parseThemeColor(value: String): Color? {
-    val input = value.trim()
-    if (input.isBlank()) return null
-
-    parseHexColor(input)?.let { return it }
-    parseRgbColor(input)?.let { return it }
-    return null
+internal sealed interface ThemeColorParseResult {
+    data object Empty : ThemeColorParseResult
+    data object TooLong : ThemeColorParseResult
+    data object UnsupportedFormat : ThemeColorParseResult
+    data object ChannelOutOfRange : ThemeColorParseResult
+    data class Valid(val hex: String) : ThemeColorParseResult
 }
 
-private fun parseHexColor(value: String): Color? {
-    val clean = value.removePrefix("#")
-    if (clean.length != 6 && clean.length != 8) return null
-    if (!clean.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return null
+internal fun parseThemeColorInput(value: String): ThemeColorParseResult {
+    if (value.length > MaxRawInputLength) return ThemeColorParseResult.TooLong
 
-    val colorLong = clean.toLongOrNull(16) ?: return null
-    val argb = if (clean.length == 6) {
-        0xFF000000L or colorLong
-    } else {
-        colorLong
+    val input = value.trim(' ')
+    if (input.isEmpty()) return ThemeColorParseResult.Empty
+    if (input.length > MaxFormatInputLength) return ThemeColorParseResult.TooLong
+
+    normalizeHexInput(input)?.let { return ThemeColorParseResult.Valid(it) }
+    return parseRgbInput(input)
+}
+
+private fun normalizeHexInput(value: String): String? {
+    val clean = if (value.startsWith('#')) value.drop(1) else value
+    if (clean.length != 6 || !clean.all(::isAsciiHexDigit)) return null
+    return "#${clean.uppercase(Locale.ROOT)}"
+}
+
+private fun parseRgbInput(value: String): ThemeColorParseResult {
+    val match = RgbPattern.matchEntire(value) ?: return ThemeColorParseResult.UnsupportedFormat
+    val channels = match.groupValues.drop(1).map { channel ->
+        channel.toIntOrNull() ?: return ThemeColorParseResult.ChannelOutOfRange
     }
-    return Color(argb.toULong())
+    if (channels.any { it !in 0..255 }) return ThemeColorParseResult.ChannelOutOfRange
+    return ThemeColorParseResult.Valid(
+        "#%02X%02X%02X".format(Locale.ROOT, channels[0], channels[1], channels[2])
+    )
 }
 
-private fun parseRgbColor(value: String): Color? {
-    val content = value
-        .removePrefix("rgb(")
-        .removePrefix("RGB(")
-        .removeSuffix(")")
-    val parts = content.split(",").map { it.trim() }
-    if (parts.size != 3) return null
-
-    val red = parts[0].toIntOrNull()?.takeIf { it in 0..255 } ?: return null
-    val green = parts[1].toIntOrNull()?.takeIf { it in 0..255 } ?: return null
-    val blue = parts[2].toIntOrNull()?.takeIf { it in 0..255 } ?: return null
-    return Color(red, green, blue)
+private fun createThemeColor(hex: String): Color {
+    val rgb = hex.substring(1).toInt(16)
+    return Color((0xFF shl 24) or rgb)
 }
 
-private fun Color.toHexString(): String {
-    val red = (red * 255).roundToInt().coerceIn(0, 255)
-    val green = (green * 255).roundToInt().coerceIn(0, 255)
-    val blue = (blue * 255).roundToInt().coerceIn(0, 255)
-    return "#%02X%02X%02X".format(red, green, blue)
-}
+private fun isCanonicalHexColor(value: String): Boolean =
+    value.length == 7 &&
+        value[0] == '#' &&
+        value.substring(1).all { it in '0'..'9' || it in 'A'..'F' }
+
+private fun isAsciiHexDigit(value: Char): Boolean =
+    value in '0'..'9' || value in 'a'..'f' || value in 'A'..'F'
+
+private const val MaxRawInputLength = 128
+private const val MaxFormatInputLength = 64
+private val RgbPattern = Regex(
+    """[rR][gG][bB]\( *([0-9]+) *, *([0-9]+) *, *([0-9]+) *\)"""
+)
