@@ -1,6 +1,7 @@
 package com.example.fitnessrecord.data.repository
 
 import com.example.fitnessrecord.model.AttendancePoint
+import com.example.fitnessrecord.model.AnalysisRange
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
 import com.example.fitnessrecord.model.QuickImportPlan
@@ -14,6 +15,7 @@ import java.time.YearMonth
 
 interface WorkoutRepository {
     fun observeWorkoutDays(): Flow<List<WorkoutDay>>
+    fun observeWorkoutDays(range: AnalysisRange): Flow<List<WorkoutDay>>
     fun observeWorkoutDay(date: LocalDate): Flow<WorkoutDay>
     fun observeRecordDates(): Flow<Set<LocalDate>>
     fun observeCustomActionFolders(): Flow<List<CustomActionFolder>>
@@ -21,6 +23,7 @@ interface WorkoutRepository {
     fun observeCustomActions(folderId: Long?): Flow<List<CustomAction>>
     fun observeTrend(mode: TrendMode, month: YearMonth): Flow<List<AttendancePoint>>
     suspend fun getWorkoutDays(): List<WorkoutDay>
+    suspend fun getWorkoutDays(range: AnalysisRange): List<WorkoutDay>
     suspend fun saveWorkoutDay(day: WorkoutDay)
     suspend fun deleteWorkoutDay(date: LocalDate)
     suspend fun createCustomActionFolder(name: String): ActionFolderSaveResult

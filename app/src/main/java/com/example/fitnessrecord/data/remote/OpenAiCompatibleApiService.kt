@@ -271,6 +271,18 @@ class OpenAiCompatibleApiService(
     }
 
     private fun AiAdviceRequest.toPromptPayload(userPrompt: String): AiPromptPayload = AiPromptPayload(
+        requestId = requestId,
+        snapshotId = snapshotId,
+        rangeStart = rangeStart,
+        rangeEnd = rangeEnd,
+        rangeDays = rangeDays,
+        activeTrainingDays = activeTrainingDays,
+        workoutSessions = workoutSessions,
+        observedDataSpanDays = observedDataSpanDays,
+        weeklyRecordedFrequency = weeklyRecordedFrequency,
+        totalMinutes = totalMinutes,
+        totalActions = totalActions,
+        totalSets = totalSets,
         userAdvicePrompt = userPrompt,
         records = records.map { record ->
             AiPromptRecord(
@@ -281,6 +293,7 @@ class OpenAiCompatibleApiService(
                 actions = record.actions.map { action ->
                     AiPromptAction(
                         name = action.name,
+                        setCount = action.setCount,
                         sets = action.sets.map { set ->
                             AiPromptSet(
                                 reps = set.reps,
@@ -311,11 +324,15 @@ class OpenAiCompatibleApiService(
         val systemPrompt = """
             你是一个谨慎、专业的健身数据分析助手。
 
-            我会给你用户的建议偏好和必要训练记录数据，包括日期、训练类型、训练时长、备注、动作、组数、次数、重量或完成情况，以及最近出勤趋势。
-            请优先遵守系统要求，再参考用户建议偏好，根据必要训练记录生成结构化建议。
+            我会给你用户的建议偏好、明确的分析日期范围、基于已记录数据计算的本地事实，以及少量训练记录摘要。
+            请优先遵守系统要求，再参考用户建议偏好，根据已记录数据生成结构化建议。
 
             要求：
             - 不要编造用户没有提供的数据
+            - 数据只代表用户在指定日期范围内已经记录的内容，缺失记录不等于用户没有训练
+            - 不要自行计算训练容量或估算1RM；当前输入没有提供这些本地统计结果时，不要声称已经分析了它们
+            - 如果没有结构化RPE、睡眠或恢复字段，不要判断恢复状态，只能说明当前无法判断
+            - 明确区分数据事实、可能解释和行动建议，不要把相关性写成确定因果
             - 不要给医疗诊断
             - 注意事项只提供训练层面的提醒，不进行疾病、伤病或医学诊断
             - 如果数据中出现疼痛、受伤、头晕、胸闷等内容，只提醒用户降低强度、停止高强度训练并咨询专业人士
@@ -384,6 +401,18 @@ private data class TokenUsageResponse(
 
 @Serializable
 private data class AiPromptPayload(
+    val requestId: String,
+    val snapshotId: String,
+    val rangeStart: String,
+    val rangeEnd: String,
+    val rangeDays: Int,
+    val activeTrainingDays: Int,
+    val workoutSessions: Int,
+    val observedDataSpanDays: Int?,
+    val weeklyRecordedFrequency: Double,
+    val totalMinutes: Int,
+    val totalActions: Int,
+    val totalSets: Int,
     val userAdvicePrompt: String,
     val records: List<AiPromptRecord>,
     val attendanceTrend: List<AiPromptTrendPoint>,
@@ -401,6 +430,7 @@ private data class AiPromptRecord(
 @Serializable
 private data class AiPromptAction(
     val name: String,
+    val setCount: Int,
     val sets: List<AiPromptSet>,
 )
 
@@ -429,7 +459,7 @@ private data class AiAdviceResponse(
     val motivation: String = "",
 ) {
     fun toModel(): AiAdvice = AiAdvice(
-        summary = summary.ifBlank { "暂无足够数据生成本月总结。" },
+        summary = summary.ifBlank { "暂无足够数据生成当前分析范围的总结。" },
         frequencyAnalysis = frequencyAnalysis.ifBlank { "暂无足够数据分析训练频率。" },
         recoveryAdvice = recoveryAdvice.ifEmpty { listOf("保持训练记录完整，便于后续分析恢复情况。") },
         nextWeekPlan = nextWeekPlan.map { it.toModel() },

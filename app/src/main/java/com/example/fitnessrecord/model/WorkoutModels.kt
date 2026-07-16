@@ -67,7 +67,11 @@ enum class TrendMode(val label: String) {
 
 @Immutable
 data class AiDashboardData(
+    val range: AnalysisRange,
     val totalTrainingDays: Int,
+    val workoutSessions: Int,
+    val observedDataSpanDays: Int?,
+    val weeklyRecordedFrequency: Double,
     val totalMinutes: Int,
     val totalActions: Int,
     val totalSets: Int,
@@ -80,6 +84,8 @@ data class AiDashboardData(
 data class AiAdviceResult(
     val advice: AiAdvice,
     val tokenUsage: AiTokenUsage? = null,
+    val requestId: String? = null,
+    val snapshotId: String? = null,
 )
 
 @Immutable
@@ -110,6 +116,18 @@ data class NextWeekSuggestion(
 
 @Immutable
 data class AiAdviceRequest(
+    val requestId: String,
+    val snapshotId: String,
+    val rangeStart: String,
+    val rangeEnd: String,
+    val rangeDays: Int,
+    val activeTrainingDays: Int,
+    val workoutSessions: Int,
+    val observedDataSpanDays: Int?,
+    val weeklyRecordedFrequency: Double,
+    val totalMinutes: Int,
+    val totalActions: Int,
+    val totalSets: Int,
     val records: List<AiWorkoutRecord>,
     val attendanceTrend: List<AttendancePoint>,
 )
@@ -126,6 +144,7 @@ data class AiWorkoutRecord(
 @Immutable
 data class AiWorkoutAction(
     val name: String,
+    val setCount: Int = 0,
     val sets: List<AiWorkoutSet> = emptyList(),
 )
 

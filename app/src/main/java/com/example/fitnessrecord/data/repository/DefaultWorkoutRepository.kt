@@ -9,6 +9,7 @@ import com.example.fitnessrecord.data.local.entity.WorkoutDayEntity
 import com.example.fitnessrecord.data.local.entity.WorkoutSetEntity
 import com.example.fitnessrecord.data.local.relation.WorkoutDayWithActions
 import com.example.fitnessrecord.model.AttendancePoint
+import com.example.fitnessrecord.model.AnalysisRange
 import com.example.fitnessrecord.model.CustomAction
 import com.example.fitnessrecord.model.CustomActionFolder
 import com.example.fitnessrecord.model.DEFAULT_CUSTOM_ACTION_FOLDER_ID
@@ -41,6 +42,12 @@ class DefaultWorkoutRepository(
     override fun observeWorkoutDays(): Flow<List<WorkoutDay>> =
         workoutDao.observeWorkoutDays().map { days -> days.map { it.toModel() } }
 
+    override fun observeWorkoutDays(range: AnalysisRange): Flow<List<WorkoutDay>> =
+        workoutDao.observeWorkoutDays(
+            startEpochDay = range.startInclusive.toEpochDay(),
+            endEpochDay = range.endExclusive.toEpochDay()
+        ).map { days -> days.map { it.toModel() } }
+
     override fun observeWorkoutDay(date: LocalDate): Flow<WorkoutDay> =
         workoutDao.observeWorkoutDay(date.toEpochDay()).map { it?.toModel() ?: WorkoutDay(date) }
 
@@ -66,6 +73,9 @@ class DefaultWorkoutRepository(
         }.flowOn(Dispatchers.Default)
 
     override suspend fun getWorkoutDays(): List<WorkoutDay> = observeWorkoutDays().first()
+
+    override suspend fun getWorkoutDays(range: AnalysisRange): List<WorkoutDay> =
+        observeWorkoutDays(range).first()
 
     override suspend fun saveWorkoutDay(day: WorkoutDay) {
         val validActions = day.actions

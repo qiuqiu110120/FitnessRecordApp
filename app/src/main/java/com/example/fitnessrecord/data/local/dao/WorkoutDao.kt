@@ -22,6 +22,18 @@ interface WorkoutDao {
     fun observeWorkoutDays(): Flow<List<WorkoutDayWithActions>>
 
     @Transaction
+    @Query(
+        """
+        SELECT * FROM workout_days
+        WHERE deletedAt IS NULL
+          AND dateEpochDay >= :startEpochDay
+          AND dateEpochDay < :endEpochDay
+        ORDER BY dateEpochDay DESC
+        """
+    )
+    fun observeWorkoutDays(startEpochDay: Long, endEpochDay: Long): Flow<List<WorkoutDayWithActions>>
+
+    @Transaction
     @Query("SELECT * FROM workout_days WHERE dateEpochDay = :dateEpochDay AND deletedAt IS NULL")
     fun observeWorkoutDay(dateEpochDay: Long): Flow<WorkoutDayWithActions?>
 

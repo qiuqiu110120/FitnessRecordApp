@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -20,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.example.fitnessrecord.model.AiAdvice
 import com.example.fitnessrecord.model.AiDashboardData
+import com.example.fitnessrecord.model.AnalysisRangePreset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,10 +52,6 @@ fun AiAdviceRoute(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(Unit) {
-        viewModel.refreshDashboardData()
-    }
 
     LaunchedEffect(uiState.eventMessage) {
         val message = uiState.eventMessage
@@ -77,9 +77,30 @@ fun AiAdviceRoute(
             )
 
             uiState.isDashboardLoading -> DashboardLoading(contentPadding)
-            errorMessage != null -> ErrorAdvice(contentPadding, errorMessage, uiState.dashboardData, viewModel::refresh)
-            advice != null -> AiAdviceContent(contentPadding, advice, uiState.dashboardData, uiState.isLoading, viewModel::refresh)
-            else -> AiAdviceLanding(contentPadding, uiState.dashboardData, viewModel::refresh)
+            errorMessage != null -> ErrorAdvice(
+                contentPadding,
+                errorMessage,
+                uiState.dashboardData,
+                uiState.rangePreset,
+                viewModel::selectRange,
+                viewModel::refresh
+            )
+            advice != null -> AiAdviceContent(
+                contentPadding,
+                advice,
+                uiState.dashboardData,
+                uiState.rangePreset,
+                uiState.isLoading,
+                viewModel::selectRange,
+                viewModel::refresh
+            )
+            else -> AiAdviceLanding(
+                contentPadding,
+                uiState.dashboardData,
+                uiState.rangePreset,
+                viewModel::selectRange,
+                viewModel::refresh
+            )
         }
     }
 }
@@ -143,6 +164,8 @@ private fun LoadingAdvice(
 private fun AiAdviceLanding(
     innerPadding: PaddingValues,
     dashboardData: AiDashboardData?,
+    selectedPreset: AnalysisRangePreset,
+    onPresetSelected: (AnalysisRangePreset) -> Unit,
     onGetAdvice: () -> Unit,
 ) {
     LazyColumn(
@@ -152,6 +175,7 @@ private fun AiAdviceLanding(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        item { AnalysisRangeSelector(selectedPreset, onPresetSelected) }
         dashboardData?.let {
             item { AiDashboardCard(it) }
         }
@@ -164,6 +188,8 @@ private fun ErrorAdvice(
     innerPadding: PaddingValues,
     message: String,
     dashboardData: AiDashboardData?,
+    selectedPreset: AnalysisRangePreset,
+    onPresetSelected: (AnalysisRangePreset) -> Unit,
     onRetry: () -> Unit,
 ) {
     LazyColumn(
@@ -173,6 +199,7 @@ private fun ErrorAdvice(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        item { AnalysisRangeSelector(selectedPreset, onPresetSelected) }
         dashboardData?.let {
             item { AiDashboardCard(it) }
             item { GetAiAdviceButton(isLoading = false, onClick = onRetry) }
@@ -193,7 +220,9 @@ private fun AiAdviceContent(
     innerPadding: PaddingValues,
     advice: AiAdvice,
     dashboardData: AiDashboardData?,
+    selectedPreset: AnalysisRangePreset,
     isLoading: Boolean,
+    onPresetSelected: (AnalysisRangePreset) -> Unit,
     onRefresh: () -> Unit,
 ) {
     LazyColumn(
@@ -203,11 +232,12 @@ private fun AiAdviceContent(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        item { AnalysisRangeSelector(selectedPreset, onPresetSelected) }
         dashboardData?.let {
             item { AiDashboardCard(it) }
             item { GetAiAdviceButton(isLoading = isLoading, onClick = onRefresh) }
         }
-        item { AdviceCard(Icons.Outlined.Summarize, "本月总结", advice.summary) }
+        item { AdviceCard(Icons.Outlined.Summarize, "当前周期总结", advice.summary) }
         item { AdviceCard(Icons.AutoMirrored.Outlined.TrendingUp, "训练频率分析", advice.frequencyAnalysis) }
         item {
             ListAdviceCard(
@@ -232,6 +262,28 @@ private fun AiAdviceContent(
             )
         }
         item { AdviceCard(Icons.Outlined.AutoAwesome, "鼓励", advice.motivation) }
+    }
+}
+
+@Composable
+private fun AnalysisRangeSelector(
+    selectedPreset: AnalysisRangePreset,
+    onPresetSelected: (AnalysisRangePreset) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("分析范围", style = MaterialTheme.typography.titleSmall)
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AnalysisRangePreset.entries.forEach { preset ->
+                FilterChip(
+                    selected = preset == selectedPreset,
+                    onClick = { onPresetSelected(preset) },
+                    label = { Text(preset.label) }
+                )
+            }
+        }
     }
 }
 

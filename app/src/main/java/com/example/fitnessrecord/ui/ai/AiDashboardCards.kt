@@ -38,15 +38,36 @@ fun AiDashboardCard(data: AiDashboardData) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("本月训练概览", style = MaterialTheme.typography.titleMedium)
+            Text("训练概览", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = data.range.displayLabel(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricTile("训练天数", "${data.totalTrainingDays}天", Modifier.weight(1f))
+                MetricTile("活跃训练日", "${data.totalTrainingDays}天", Modifier.weight(1f))
                 MetricTile("总时长", "${data.totalMinutes}分", Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricTile("动作数", "${data.totalActions}", Modifier.weight(1f))
                 MetricTile("总组数", "${data.totalSets}", Modifier.weight(1f))
             }
+            Text(
+                text = buildString {
+                    append("已记录频率：")
+                    append("%.1f".format(java.util.Locale.ROOT, data.weeklyRecordedFrequency))
+                    append(" 次/周 · 有效记录 ")
+                    append(data.workoutSessions)
+                    append(" 条")
+                    data.observedDataSpanDays?.let {
+                        append(" · 可见记录覆盖 ")
+                        append(it)
+                        append(" 天")
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             AttendanceBarChart(data.attendanceTrend)
             TypeBreakdownChart(data.typeBreakdown)
         }
@@ -82,10 +103,10 @@ private fun MetricTile(
 @Composable
 private fun AttendanceBarChart(points: List<AttendancePoint>) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("周出勤趋势", style = MaterialTheme.typography.titleSmall)
+        Text("每周已记录训练日", style = MaterialTheme.typography.titleSmall)
         if (points.isEmpty()) {
             Text(
-                text = "本月还没有训练记录。",
+                text = "当前范围还没有已记录的训练。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -131,7 +152,7 @@ private fun AttendanceBarChart(points: List<AttendancePoint>) {
 private fun TypeBreakdownChart(points: List<AttendancePoint>) {
     val chartColors = chartColors()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("训练类型分布", style = MaterialTheme.typography.titleSmall)
+        Text("训练类型分布（已记录训练日）", style = MaterialTheme.typography.titleSmall)
         if (points.isEmpty()) {
             Text(
                 text = "记录训练类型后会显示分布。",
