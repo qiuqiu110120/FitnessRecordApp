@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.fitnessrecord"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.1.29"
+        versionCode = 31
+        versionName = "0.1.30"
     }
 
     buildTypes {
