@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fitnessrecord.data.repository.AiAdviceRepository
 import com.example.fitnessrecord.model.AiAdvice
-import com.example.fitnessrecord.model.AiAdviceResult
 import com.example.fitnessrecord.model.AiDashboardData
 import com.example.fitnessrecord.model.AiTokenUsage
 import com.example.fitnessrecord.model.AnalysisDataSnapshot
@@ -43,6 +42,11 @@ class AiAdviceViewModel(
     private var adviceJob: Job? = null
     private var countdownJob: Job? = null
 
+    // Keep generated advice for each range during this ViewModel session.
+    // The snapshot id prevents advice from being restored after local data changes.
+    private val adviceDrafts = MutableStateFlow<Map<AnalysisRangePreset, CachedAdvice>>(emptyMap())
+    private val latestGenerationIds = MutableStateFlow<Map<AnalysisRangePreset, String>>(emptyMap())
+
     init {
         viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             aiAdviceRepository.clearPersistedAdviceCache()
@@ -64,59 +68,93 @@ class AiAdviceViewModel(
         val state = _uiState.value
         if (state.isLoading) return
 
-        viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
-            val snapshot = state.snapshot ?: runCatching {
-                aiAdviceRepository.loadAnalysisSnapshot(
-                    state.request ?: createRequest(state.rangePreset)
-                )
-            }.getOrElse { error ->
-                _uiState.update {
-                    it.copy(
-                        isDashboardLoading = false,
-                        errorMessage = error.message ?: "读取本地训练统计失败。",
-                        aiState = AiRequestState.Error(null, null, error.message)
-                    )
+        val request = state.request ?: createRequest(state.rangePreset)
+        val observationRequestId = request.requestId
+        val preset = presetFor(request)
+        adviceJob?.cancel()
+        adviceJob = viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
+            val snapshot = try {
+                state.snapshot ?: aiAdviceRepository.loadAnalysisSnapshot(request)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { current ->
+                    if (current.request?.requestId != observationRequestId) {
+                        current
+                    } else {
+                        current.copy(
+                            isDashboardLoading = false,
+                            errorMessage = error.message ?: "读取本地训练统计失败。",
+                            aiState = AiRequestState.Error(null, null, error.message),
+                        )
+                    }
                 }
                 return@launch
             }
+
+            val currentState = _uiState.value
+            if (
+                currentState.request?.requestId != observationRequestId ||
+                (currentState.snapshotId != null && currentState.snapshotId != snapshot.snapshotId)
+            ) {
+                return@launch
+            }
+
             val requestId = UUID.randomUUID().toString()
-            startCountdown(requestId, snapshot.snapshotId)
-            adviceJob?.cancel()
-            adviceJob = this@AiAdviceViewModel.viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
-                try {
-                    val result = withTimeout(AI_TIMEOUT_SECONDS * 1_000L) {
-                        aiAdviceRepository.generateAdvice(snapshot, requestId)
+            latestGenerationIds.update { it + (preset to requestId) }
+            if (!startCountdown(observationRequestId, requestId, snapshot)) {
+                latestGenerationIds.update { ids ->
+                    if (ids[preset] == requestId) ids - preset else ids
+                }
+                return@launch
+            }
+
+            try {
+                val result = withTimeout(AI_TIMEOUT_SECONDS * 1_000L) {
+                    aiAdviceRepository.generateAdvice(snapshot, requestId)
+                }
+                val latestSnapshot = aiAdviceRepository.loadAnalysisSnapshot(snapshot.request)
+                if (latestGenerationIds.value[preset] != requestId) return@launch
+                if (latestSnapshot.snapshotId != snapshot.snapshotId) {
+                    invalidateForNewSnapshot(latestSnapshot)
+                    return@launch
+                }
+
+                adviceDrafts.update { drafts ->
+                    drafts + (
+                        preset to CachedAdvice(
+                            snapshotId = snapshot.snapshotId,
+                            requestId = requestId,
+                            advice = result.advice,
+                            tokenUsage = result.tokenUsage,
+                        )
+                    )
+                }
+                _uiState.update { current ->
+                    if (
+                        current.request?.requestId != observationRequestId ||
+                        current.activeRequestId != requestId ||
+                        current.snapshotId != snapshot.snapshotId
+                    ) {
+                        current
+                    } else {
+                        current.copy(
+                            isLoading = false,
+                            isDashboardLoading = false,
+                            advice = result.advice,
+                            tokenUsage = result.tokenUsage,
+                            errorMessage = null,
+                            eventMessage = "AI建议已生成（${snapshot.request.range.displayLabel()}）",
+                            aiState = AiRequestState.Success(requestId, snapshot.snapshotId),
+                        )
                     }
-                    val latestSnapshot = aiAdviceRepository.loadAnalysisSnapshot(snapshot.request)
-                    if (latestSnapshot.snapshotId != snapshot.snapshotId) {
-                        invalidateForNewSnapshot(latestSnapshot)
-                        return@launch
-                    }
-                    _uiState.update { current ->
-                        if (
-                            current.activeRequestId != requestId ||
-                            current.snapshotId != snapshot.snapshotId
-                        ) {
-                            current
-                        } else {
-                            current.copy(
-                                isLoading = false,
-                                isDashboardLoading = false,
-                                advice = result.advice,
-                                tokenUsage = result.tokenUsage,
-                                errorMessage = null,
-                                eventMessage = "AI建议已生成（${snapshot.request.range.displayLabel()}）",
-                                aiState = AiRequestState.Success(requestId, snapshot.snapshotId),
-                            )
-                        }
-                    }
-                } catch (error: CancellationException) {
-                    if (error is TimeoutCancellationException) {
-                        handleAdviceFailure(requestId, snapshot.snapshotId, error)
-                    }
-                } catch (error: Throwable) {
+                }
+            } catch (error: CancellationException) {
+                if (error is TimeoutCancellationException) {
                     handleAdviceFailure(requestId, snapshot.snapshotId, error)
                 }
+            } catch (error: Throwable) {
+                handleAdviceFailure(requestId, snapshot.snapshotId, error)
             }
         }
     }
@@ -153,35 +191,67 @@ class AiAdviceViewModel(
         snapshotJob = viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             aiAdviceRepository.observeAnalysisSnapshots(request).collectLatest { snapshot ->
                 val dashboardData = aiAdviceRepository.getDashboardData(snapshot)
+                val preset = presetFor(request)
+                val cachedAdvice = adviceDrafts.value[preset]
+                val matchingCachedAdvice = cachedAdvice?.takeIf { it.snapshotId == snapshot.snapshotId }
+                if (cachedAdvice != null && matchingCachedAdvice == null) {
+                    adviceDrafts.update { drafts ->
+                        if (drafts[preset]?.snapshotId == cachedAdvice.snapshotId) drafts - preset else drafts
+                    }
+                }
                 var shouldCancelAdvice = false
+                var shouldInvalidateGeneration = false
                 _uiState.update { current ->
                     if (current.request?.requestId != request.requestId) {
                         current
                     } else {
                         val changed = current.snapshotId != null && current.snapshotId != snapshot.snapshotId
-                        shouldCancelAdvice = changed && current.isLoading
+                        val staleCachedAdvice = cachedAdvice != null && matchingCachedAdvice == null
+                        shouldInvalidateGeneration = changed || staleCachedAdvice
+                        shouldCancelAdvice = shouldInvalidateGeneration && current.isLoading
                         current.copy(
                             isDashboardLoading = false,
                             snapshot = snapshot,
                             snapshotId = snapshot.snapshotId,
                             dashboardData = dashboardData,
-                            advice = if (changed) null else current.advice,
-                            tokenUsage = if (changed) null else current.tokenUsage,
-                            errorMessage = if (changed) null else current.errorMessage,
-                            isLoading = if (changed) false else current.isLoading,
-                            progress = if (changed) 0f else current.progress,
-                            aiState = if (changed) {
-                                AiRequestState.Stale(current.activeRequestId, snapshot.snapshotId)
-                            } else {
-                                current.aiState
+                            advice = when {
+                                changed -> null
+                                matchingCachedAdvice != null -> matchingCachedAdvice.advice
+                                else -> current.advice
                             },
-                            eventMessage = if (changed) {
-                                "训练数据已更新，请重新获取AI建议"
+                            tokenUsage = when {
+                                changed -> null
+                                matchingCachedAdvice != null -> matchingCachedAdvice.tokenUsage
+                                else -> current.tokenUsage
+                            },
+                            activeRequestId = if (
+                                matchingCachedAdvice != null && !current.isLoading && current.advice == null
+                            ) {
+                                matchingCachedAdvice.requestId
                             } else {
-                                current.eventMessage
+                                current.activeRequestId
+                            },
+                            errorMessage = if (changed || staleCachedAdvice) null else current.errorMessage,
+                            isLoading = if (changed || staleCachedAdvice) false else current.isLoading,
+                            progress = if (changed || staleCachedAdvice) 0f else current.progress,
+                            aiState = when {
+                                changed || staleCachedAdvice -> {
+                                    AiRequestState.Stale(current.activeRequestId, snapshot.snapshotId)
+                                }
+                                matchingCachedAdvice != null && current.advice == null && !current.isLoading -> {
+                                    AiRequestState.Success(matchingCachedAdvice.requestId, snapshot.snapshotId)
+                                }
+                                else -> current.aiState
+                            },
+                            eventMessage = when {
+                                changed || staleCachedAdvice -> "训练数据已更新，请重新获取AI建议"
+                                else -> current.eventMessage
                             }
                         )
                     }
+                }
+                if (shouldInvalidateGeneration) {
+                    latestGenerationIds.update { ids -> ids - preset }
                 }
                 if (shouldCancelAdvice) {
                     adviceJob?.cancel()
@@ -214,6 +284,9 @@ class AiAdviceViewModel(
     }
 
     private fun invalidateForNewSnapshot(snapshot: AnalysisDataSnapshot) {
+        val preset = presetFor(snapshot.request)
+        adviceDrafts.update { drafts -> drafts - preset }
+        latestGenerationIds.update { ids -> ids - preset }
         _uiState.update { current ->
             if (current.request?.requestId != snapshot.request.requestId) {
                 current
@@ -230,32 +303,52 @@ class AiAdviceViewModel(
                 )
             }
         }
-        adviceJob?.cancel()
-        countdownJob?.cancel()
     }
 
-    private fun startCountdown(requestId: String, snapshotId: String) {
+    private fun startCountdown(
+        observationRequestId: String,
+        requestId: String,
+        snapshot: AnalysisDataSnapshot,
+    ): Boolean {
+        var started = false
         countdownJob?.cancel()
-        _uiState.update {
-            it.copy(
-                isLoading = true,
-                isDashboardLoading = false,
-                activeRequestId = requestId,
-                loadingMessage = "正在提交已记录的训练数据给 AI",
-                progress = 0f,
-                remainingSeconds = AI_TIMEOUT_SECONDS,
-                errorMessage = null,
-                eventMessage = null,
-                aiState = AiRequestState.Loading(requestId, snapshotId),
-            )
+        _uiState.update { current ->
+            if (
+                current.request?.requestId != observationRequestId ||
+                (current.snapshotId != null && current.snapshotId != snapshot.snapshotId)
+            ) {
+                current
+            } else {
+                started = true
+                current.copy(
+                    isLoading = true,
+                    isDashboardLoading = false,
+                    snapshot = snapshot,
+                    snapshotId = snapshot.snapshotId,
+                    activeRequestId = requestId,
+                    loadingMessage = "正在提交已记录的训练数据给 AI",
+                    progress = 0f,
+                    remainingSeconds = AI_TIMEOUT_SECONDS,
+                    errorMessage = null,
+                    eventMessage = null,
+                    aiState = AiRequestState.Loading(requestId, snapshot.snapshotId),
+                )
+            }
         }
+        if (!started) return false
         countdownJob = viewModelScope.launch(AppLogger.coroutineExceptionHandler) {
             for (second in AI_TIMEOUT_SECONDS downTo 0) {
                 val state = _uiState.value
-                if (!state.isLoading || state.activeRequestId != requestId || state.snapshotId != snapshotId) return@launch
+                if (
+                    !state.isLoading ||
+                    state.activeRequestId != requestId ||
+                    state.snapshotId != snapshot.snapshotId
+                ) {
+                    return@launch
+                }
                 val elapsed = AI_TIMEOUT_SECONDS - second
                 _uiState.update {
-                    if (it.activeRequestId != requestId || it.snapshotId != snapshotId) it else it.copy(
+                    if (it.activeRequestId != requestId || it.snapshotId != snapshot.snapshotId) it else it.copy(
                         progress = elapsed.toFloat() / AI_TIMEOUT_SECONDS.toFloat(),
                         remainingSeconds = second,
                     )
@@ -263,11 +356,23 @@ class AiAdviceViewModel(
                 delay(1_000L)
             }
         }
+        return true
     }
+
+    private fun presetFor(request: AnalysisRequest): AnalysisRangePreset =
+        AnalysisRangePreset.entries.firstOrNull { it.days == request.range.lengthDays }
+            ?: error("Unsupported analysis range: ${request.range.lengthDays} days")
 
     private fun createRequest(preset: AnalysisRangePreset): AnalysisRequest =
         AnalysisRequest.create(preset = preset, clock = clock)
 }
+
+private data class CachedAdvice(
+    val snapshotId: String,
+    val requestId: String,
+    val advice: AiAdvice,
+    val tokenUsage: AiTokenUsage?,
+)
 
 data class AiAdviceUiState(
     val rangePreset: AnalysisRangePreset = AnalysisRangePreset.Last90,

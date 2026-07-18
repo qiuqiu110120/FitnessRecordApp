@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -920,6 +922,7 @@ private fun AiModelSettingsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AiAdvicePromptSettingsCard(
     config: AiAdvicePromptConfig,
@@ -977,8 +980,12 @@ private fun AiAdvicePromptSettingsCard(
                 text = "预设提示词：${selectedPreset.label}",
                 style = MaterialTheme.typography.bodyMedium
             )
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(AiAdvicePromptPreset.entries, key = { it.key }) { preset ->
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AiAdvicePromptPreset.entries.forEach { preset ->
                     FilterChip(
                         selected = selectedPreset == preset,
                         onClick = { onPresetChange(preset) },

@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.fitnessrecord"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "0.1.30"
+        versionCode = 32
+        versionName = "0.1.31"
     }
 
     buildTypes {
@@ -71,4 +71,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
