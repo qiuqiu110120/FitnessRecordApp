@@ -1,6 +1,7 @@
 ﻿package com.example.fitnessrecord.ui.home
 
 import androidx.compose.runtime.Immutable
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fitnessrecord.data.importer.parseQuickWorkoutImportJson
@@ -22,15 +23,21 @@ import com.example.fitnessrecord.model.hasMeaningfulContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -40,17 +47,22 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.temporal.TemporalAdjusters
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModel(
     private val workoutRepository: WorkoutRepository,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
-    private val selectedDate = MutableStateFlow(LocalDate.now())
-    private val visibleMonth = MutableStateFlow(YearMonth.now())
-    private val calendarMode = MutableStateFlow(CalendarMode.Month)
-    private val editingDate = MutableStateFlow<LocalDate?>(null)
+    private val restoredCalendarState = savedStateHandle.restoreCalendarState()
+    private val selectedDate = MutableStateFlow(restoredCalendarState.selectedDate)
+    private val visibleMonth = MutableStateFlow(restoredCalendarState.visibleMonth)
+    private val visibleWeekStart = MutableStateFlow(restoredCalendarState.visibleWeekStart)
+    private val calendarMode = MutableStateFlow(restoredCalendarState.mode)
+    private val editingDate = MutableStateFlow(savedStateHandle.restoredEditingDate())
     private val editorDraft = MutableStateFlow<WorkoutEditorDraft?>(null)
     private val originalEditorDay = MutableStateFlow<WorkoutDay?>(null)
     private val saveStatus = MutableStateFlow<EditorSaveStatus>(EditorSaveStatus.Idle)
@@ -61,6 +73,7 @@ class HomeViewModel(
     private val customActionFolderDraft = MutableStateFlow("")
     private val actionLibraryMessage = MutableStateFlow<String?>(null)
     private val importState = MutableStateFlow(QuickImportUiState())
+    val quickImportState: StateFlow<QuickImportUiState> = importState.asStateFlow()
 
     private var debounceSaveJob: Job? = null
     private var saveJob: Job? = null
@@ -68,6 +81,9 @@ class HomeViewModel(
     private var saveRequestedDuringRun = false
     private var pendingExitAfterSave = false
     private var lastSavedDay: WorkoutDay? = null
+    private var draftVersion = 0L
+    private var editorSession = 0L
+    private val saveMutex = Mutex()
 
     private val selectedWorkoutDay = selectedDate
         .flatMapLatest { date -> workoutRepository.observeWorkoutDay(date) }
@@ -86,8 +102,18 @@ class HomeViewModel(
     private val hasAnyCustomActions = workoutRepository.observeCustomActions()
         .distinctUntilChanged()
 
-    private val dateState = combine(selectedDate, visibleMonth, calendarMode) { date, month, mode ->
-        HomeDateState(selectedDate = date, visibleMonth = month, calendarMode = mode)
+    private val dateState = combine(
+        selectedDate,
+        visibleMonth,
+        visibleWeekStart,
+        calendarMode
+    ) { date, month, weekStart, mode ->
+        HomeDateState(
+            selectedDate = date,
+            visibleMonth = month,
+            visibleWeekStart = weekStart,
+            calendarMode = mode
+        )
     }.distinctUntilChanged()
 
     private val editorState = combine(
@@ -168,6 +194,7 @@ class HomeViewModel(
         HomeUiState(
             selectedDate = contentState.dateState.selectedDate,
             visibleMonth = contentState.dateState.visibleMonth,
+            visibleWeekStart = contentState.dateState.visibleWeekStart,
             calendarMode = contentState.dateState.calendarMode,
             editingDate = contentState.editorState.editingDate,
             editorDraft = contentState.editorState.editorDraft,
@@ -188,42 +215,75 @@ class HomeViewModel(
     }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
+    init {
+        persistCalendarState()
+        restoreEditorIfPossible()
+    }
+
     fun selectDate(date: LocalDate) {
-        updateSelectedDate(date)
+        selectedDate.value = date.coerceInCalendarRange()
+        persistCalendarState()
     }
 
     fun setCalendarMode(mode: CalendarMode) {
         if (calendarMode.value != mode) {
             calendarMode.value = mode
             visibleMonth.value = YearMonth.from(selectedDate.value)
+            visibleWeekStart.value = selectedDate.value.startOfWeek()
+            persistCalendarState()
         }
     }
 
     fun goToPreviousCalendarPage() {
-        val newDate = if (calendarMode.value == CalendarMode.Month) {
-            selectedDate.value.minusMonths(1)
+        if (calendarMode.value == CalendarMode.Month) {
+            visibleMonth.value = visibleMonth.value.minusMonths(1).coerceInCalendarRange()
         } else {
-            selectedDate.value.minusWeeks(1)
+            visibleWeekStart.value = visibleWeekStart.value.minusWeeks(1).coerceInCalendarRange().startOfWeek()
         }
-        updateSelectedDate(newDate)
+        persistCalendarState()
     }
 
     fun goToNextCalendarPage() {
-        val newDate = if (calendarMode.value == CalendarMode.Month) {
-            selectedDate.value.plusMonths(1)
+        if (calendarMode.value == CalendarMode.Month) {
+            visibleMonth.value = visibleMonth.value.plusMonths(1).coerceInCalendarRange()
         } else {
-            selectedDate.value.plusWeeks(1)
+            visibleWeekStart.value = visibleWeekStart.value.plusWeeks(1).coerceInCalendarRange().startOfWeek()
         }
-        updateSelectedDate(newDate)
+        persistCalendarState()
     }
 
     fun goToToday() {
-        updateSelectedDate(LocalDate.now())
+        val today = LocalDate.now().coerceInCalendarRange()
+        selectedDate.value = today
+        visibleMonth.value = YearMonth.from(today)
+        visibleWeekStart.value = today.startOfWeek()
+        persistCalendarState()
+    }
+
+    fun settleVisibleMonth(expected: YearMonth, settled: YearMonth) {
+        if (calendarMode.value != CalendarMode.Month || visibleMonth.value != expected) return
+        val normalized = settled.coerceInCalendarRange()
+        if (visibleMonth.value != normalized) {
+            visibleMonth.value = normalized
+            persistCalendarState()
+        }
+    }
+
+    fun settleVisibleWeek(expected: LocalDate, settled: LocalDate) {
+        if (calendarMode.value != CalendarMode.Week || visibleWeekStart.value != expected.startOfWeek()) return
+        val normalized = settled.coerceInCalendarRange().startOfWeek()
+        if (visibleWeekStart.value != normalized) {
+            visibleWeekStart.value = normalized
+            persistCalendarState()
+        }
     }
 
     fun startEditing(day: WorkoutDay) {
+        editorSession += 1
+        draftVersion = 0L
         temporaryActionName.value = ""
         editingDate.value = day.date
+        savedStateHandle[KEY_EDITING_DATE] = day.date.toEpochDay()
         originalEditorDay.value = day
         lastSavedDay = day
         editorDraft.value = day.toEditorDraft()
@@ -231,12 +291,14 @@ class HomeViewModel(
     }
 
     fun closeEditor() {
+        editorSession += 1
         debounceSaveJob?.cancel()
         saveJob?.cancel()
         saveInProgress = false
         saveRequestedDuringRun = false
         pendingExitAfterSave = false
         editingDate.value = null
+        savedStateHandle[KEY_EDITING_DATE] = null
         editorDraft.value = null
         originalEditorDay.value = null
         lastSavedDay = null
@@ -246,6 +308,10 @@ class HomeViewModel(
 
     fun requestCloseEditor() {
         requestSave(immediate = true, exitAfterSave = true)
+    }
+
+    fun flushDraft() {
+        requestSave(immediate = true)
     }
 
     fun addActionFromTemplate(action: CustomAction) {
@@ -376,8 +442,16 @@ class HomeViewModel(
     fun deleteDraftDay() {
         val date = editingDate.value ?: selectedDate.value
         viewModelScope.launch {
-            workoutRepository.deleteWorkoutDay(date)
-            closeEditor()
+            editorSession += 1
+            debounceSaveJob?.cancelAndJoin()
+            saveJob?.cancelAndJoin()
+            saveInProgress = false
+            saveRequestedDuringRun = false
+            pendingExitAfterSave = false
+            saveMutex.withLock {
+                workoutRepository.deleteWorkoutDay(date)
+            }
+            clearEditorState()
         }
     }
 
@@ -610,25 +684,27 @@ class HomeViewModel(
             saveRequestedDuringRun = true
             return
         }
+        saveInProgress = true
         saveJob = viewModelScope.launch {
-            saveInProgress = true
-            do {
-                saveRequestedDuringRun = false
-                val result = saveCurrentWorkout()
-                if (!result) {
-                    saveInProgress = false
-                    return@launch
+            try {
+                do {
+                    saveRequestedDuringRun = false
+                    val result = saveCurrentWorkout()
+                    if (!result) return@launch
+                } while (saveRequestedDuringRun)
+                if (pendingExitAfterSave) {
+                    clearEditorState()
                 }
-            } while (saveRequestedDuringRun)
-            saveInProgress = false
-            if (pendingExitAfterSave) {
-                closeEditor()
+            } finally {
+                saveInProgress = false
             }
         }
     }
 
     private suspend fun saveCurrentWorkout(): Boolean {
         val draft = editorDraft.value ?: return true
+        val savingVersion = draftVersion
+        val savingSession = editorSession
         val parsed = draft.toWorkoutDayOrError()
         if (parsed == null) {
             pendingExitAfterSave = false
@@ -644,29 +720,36 @@ class HomeViewModel(
             return true
         }
         saveStatus.value = EditorSaveStatus.Saving
-        return runCatching {
-            if (hasMeaningfulContent) {
-                workoutRepository.saveWorkoutDay(parsed)
-            } else {
-                workoutRepository.deleteWorkoutDay(savingDate)
-            }
-        }.fold(
-            onSuccess = {
-                if (editingDate.value == savingDate) {
-                    lastSavedDay = parsed
-                    originalEditorDay.value = parsed
-                    saveStatus.value = EditorSaveStatus.Saved
+        return saveMutex.withLock {
+            if (savingSession != editorSession) return@withLock true
+            runCatching {
+                if (hasMeaningfulContent) {
+                    workoutRepository.saveWorkoutDay(parsed)
+                } else {
+                    workoutRepository.deleteWorkoutDay(savingDate)
                 }
-                true
-            },
-            onFailure = {
-                pendingExitAfterSave = false
-                if (editingDate.value == savingDate) {
-                    saveStatus.value = EditorSaveStatus.SaveError
+            }.fold(
+                onSuccess = {
+                    if (
+                        editingDate.value == savingDate &&
+                        savingSession == editorSession &&
+                        savingVersion == draftVersion
+                    ) {
+                        lastSavedDay = parsed
+                        originalEditorDay.value = parsed
+                        saveStatus.value = EditorSaveStatus.Saved
+                    }
+                    true
+                },
+                onFailure = {
+                    pendingExitAfterSave = false
+                    if (editingDate.value == savingDate && savingSession == editorSession) {
+                        saveStatus.value = EditorSaveStatus.SaveError
+                    }
+                    false
                 }
-                false
-            }
-        )
+            )
+        }
     }
 
     private fun updateDraft(update: (WorkoutEditorDraft) -> WorkoutEditorDraft) {
@@ -674,12 +757,40 @@ class HomeViewModel(
         val updated = update(current)
         if (editorDraft.value != updated) {
             editorDraft.value = updated
+            draftVersion += 1
         }
     }
 
-    private fun updateSelectedDate(date: LocalDate) {
-        selectedDate.value = date
-        visibleMonth.value = YearMonth.from(date)
+    private fun restoreEditorIfPossible() {
+        val date = editingDate.value ?: return
+        viewModelScope.launch {
+            val day = workoutRepository.observeWorkoutDay(date).first()
+            if (day.hasMeaningfulContent()) {
+                startEditing(day)
+            } else {
+                clearEditorState()
+            }
+        }
+    }
+
+    private fun clearEditorState() {
+        editingDate.value = null
+        savedStateHandle[KEY_EDITING_DATE] = null
+        editorDraft.value = null
+        originalEditorDay.value = null
+        lastSavedDay = null
+        temporaryActionName.value = ""
+        saveStatus.value = EditorSaveStatus.Idle
+        pendingExitAfterSave = false
+    }
+
+    private fun persistCalendarState() {
+        savedStateHandle[KEY_CALENDAR_STATE] = longArrayOf(
+            calendarMode.value.ordinal.toLong(),
+            selectedDate.value.toEpochDay(),
+            visibleMonth.value.toProlepticMonth(),
+            visibleWeekStart.value.startOfWeek().toEpochDay()
+        )
     }
 
     private fun newUniqueLocalSetId(usedIds: MutableSet<Long>): Long {
@@ -770,6 +881,7 @@ data class WorkoutSetDraft(
 private data class HomeDateState(
     val selectedDate: LocalDate,
     val visibleMonth: YearMonth,
+    val visibleWeekStart: LocalDate,
     val calendarMode: CalendarMode,
 )
 
@@ -821,6 +933,7 @@ private data class HomeCustomActionDraftState(
 data class HomeUiState(
     val selectedDate: LocalDate = LocalDate.now(),
     val visibleMonth: YearMonth = YearMonth.now(),
+    val visibleWeekStart: LocalDate = LocalDate.now().startOfWeek(),
     val calendarMode: CalendarMode = CalendarMode.Month,
     val editingDate: LocalDate? = null,
     val editorDraft: WorkoutEditorDraft? = null,
@@ -934,4 +1047,69 @@ private enum class WeightInvalidReason {
 
 private fun Double.cleanNumber(): String =
     BigDecimal.valueOf(this).stripTrailingZeros().toPlainString()
+
+private const val MIN_CALENDAR_YEAR = 1900
+private const val MAX_CALENDAR_YEAR = 2100
+private const val KEY_CALENDAR_STATE = "calendar.state.v1"
+private const val KEY_CALENDAR_MODE = "calendar.mode"
+private const val KEY_SELECTED_DATE = "calendar.selectedDate"
+private const val KEY_VISIBLE_MONTH = "calendar.visibleMonth"
+private const val KEY_VISIBLE_WEEK_START = "calendar.visibleWeekStart"
+private const val KEY_EDITING_DATE = "editor.editingDate"
+
+@Immutable
+private data class RestoredCalendarState(
+    val mode: CalendarMode,
+    val selectedDate: LocalDate,
+    val visibleMonth: YearMonth,
+    val visibleWeekStart: LocalDate,
+)
+
+private fun SavedStateHandle.restoreCalendarState(): RestoredCalendarState {
+    val today = LocalDate.now().coerceInCalendarRange()
+    val atomicState = get<LongArray>(KEY_CALENDAR_STATE)?.takeIf { it.size == 4 }
+    val selected = (atomicState?.get(1) ?: get<Long>(KEY_SELECTED_DATE))
+        ?.runCatching(LocalDate::ofEpochDay)
+        ?.getOrNull()
+        ?.coerceInCalendarRange()
+        ?: today
+    val mode = atomicState?.get(0)?.toInt()
+        ?.let(CalendarMode.entries::getOrNull)
+        ?: get<String>(KEY_CALENDAR_MODE)?.let { stored -> CalendarMode.entries.firstOrNull { it.name == stored } }
+        ?: CalendarMode.Month
+    val month = (atomicState?.get(2) ?: get<Long>(KEY_VISIBLE_MONTH))
+        ?.let(::yearMonthFromProlepticMonthOrNull)
+        ?.coerceInCalendarRange()
+        ?: YearMonth.from(selected)
+    val weekStart = (atomicState?.get(3) ?: get<Long>(KEY_VISIBLE_WEEK_START))
+        ?.runCatching(LocalDate::ofEpochDay)
+        ?.getOrNull()
+        ?.coerceInCalendarRange()
+        ?.startOfWeek()
+        ?: selected.startOfWeek()
+    return RestoredCalendarState(mode, selected, month, weekStart)
+}
+
+private fun SavedStateHandle.restoredEditingDate(): LocalDate? =
+    get<Long>(KEY_EDITING_DATE)
+        ?.runCatching(LocalDate::ofEpochDay)
+        ?.getOrNull()
+        ?.takeIf { it.year in MIN_CALENDAR_YEAR..MAX_CALENDAR_YEAR }
+
+private fun LocalDate.startOfWeek(): LocalDate =
+    with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+
+private fun LocalDate.coerceInCalendarRange(): LocalDate =
+    coerceIn(LocalDate.of(MIN_CALENDAR_YEAR, 1, 1), LocalDate.of(MAX_CALENDAR_YEAR, 12, 31))
+
+private fun YearMonth.coerceInCalendarRange(): YearMonth =
+    coerceIn(YearMonth.of(MIN_CALENDAR_YEAR, 1), YearMonth.of(MAX_CALENDAR_YEAR, 12))
+
+private fun YearMonth.toProlepticMonth(): Long = year.toLong() * 12L + monthValue - 1L
+
+private fun yearMonthFromProlepticMonthOrNull(value: Long): YearMonth? = runCatching {
+    val year = Math.floorDiv(value, 12L).toInt()
+    val month = Math.floorMod(value, 12L).toInt() + 1
+    YearMonth.of(year, month)
+}.getOrNull()
 

@@ -18,6 +18,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -37,6 +41,10 @@ class AiAdviceViewModel(
         )
     )
     val uiState: StateFlow<AiAdviceUiState> = _uiState.asStateFlow()
+    val tokenUsage: StateFlow<AiTokenUsage?> = uiState
+        .map { it.tokenUsage }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private var snapshotJob: Job? = null
     private var adviceJob: Job? = null

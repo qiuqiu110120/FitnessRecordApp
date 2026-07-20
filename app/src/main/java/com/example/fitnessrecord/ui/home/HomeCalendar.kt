@@ -1,28 +1,31 @@
 package com.example.fitnessrecord.ui.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -36,9 +39,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,29 +52,41 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
 
 private const val CALENDAR_ANIMATION_DURATION_MS = 200
 private const val CALENDAR_CELL_SCALE_DURATION_MS = 160
+private const val MIN_CALENDAR_YEAR = 1900
+private const val MAX_CALENDAR_YEAR = 2100
+private val minCalendarDate = LocalDate.of(MIN_CALENDAR_YEAR, 1, 1)
+private val maxCalendarDate = LocalDate.of(MAX_CALENDAR_YEAR, 12, 31)
+private val baseCalendarMonth = YearMonth.from(minCalendarDate)
+private val baseCalendarWeek = minCalendarDate.startOfWeek()
+private val monthPageCount = ChronoUnit.MONTHS.between(
+    baseCalendarMonth.atDay(1),
+    YearMonth.from(maxCalendarDate).atDay(1)
+).toInt() + 1
+private val weekPageCount = ChronoUnit.WEEKS.between(baseCalendarWeek, maxCalendarDate.startOfWeek()).toInt() + 1
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeCalendar(
     mode: CalendarMode,
     visibleMonth: YearMonth,
+    visibleWeekStart: LocalDate,
     selectedDate: LocalDate,
     recordDates: Set<LocalDate>,
     onModeChange: (CalendarMode) -> Unit,
@@ -76,38 +94,14 @@ fun HomeCalendar(
     onNext: () -> Unit,
     onToday: () -> Unit,
     onDateClick: (LocalDate) -> Unit,
+    onMonthSettled: (expected: YearMonth, settled: YearMonth) -> Unit,
+    onWeekSettled: (expected: LocalDate, settled: LocalDate) -> Unit,
 ) {
     val today = LocalDate.now()
-    val swipeThresholdPx = with(LocalDensity.current) { 80.dp.toPx() }
-    var pageDirection by remember { mutableStateOf(CalendarPageDirection.Neutral) }
-
-    val goPrevious = {
-        pageDirection = CalendarPageDirection.Previous
-        onPrevious()
-    }
-    val goNext = {
-        pageDirection = CalendarPageDirection.Next
-        onNext()
-    }
-    val goToday = {
-        pageDirection = CalendarPageDirection.Neutral
-        onToday()
-    }
-    val changeMode: (CalendarMode) -> Unit = { calendarMode ->
-        pageDirection = CalendarPageDirection.Neutral
-        onModeChange(calendarMode)
-    }
-    val selectDate: (LocalDate) -> Unit = { date ->
-        pageDirection = CalendarPageDirection.Neutral
-        onDateClick(date)
-    }
+    var displayedMonth by remember { mutableStateOf(visibleMonth) }
+    var displayedWeekStart by remember { mutableStateOf(visibleWeekStart) }
 
     Card(
-        modifier = Modifier.calendarSwipe(
-            thresholdPx = swipeThresholdPx,
-            onPrevious = goPrevious,
-            onNext = goNext
-        ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
@@ -116,26 +110,49 @@ fun HomeCalendar(
         ) {
             CalendarToolbar(
                 mode = mode,
-                visibleMonth = visibleMonth,
+                visibleMonth = displayedMonth,
+                visibleWeekStart = displayedWeekStart,
                 selectedDate = selectedDate,
                 today = today,
-                onModeChange = changeMode,
-                onPrevious = goPrevious,
-                onNext = goNext,
-                onToday = goToday
+                onModeChange = onModeChange,
+                onPrevious = onPrevious,
+                onNext = onNext,
+                onToday = onToday
             )
 
             WeekHeader()
 
-            AnimatedCalendarContent(
-                mode = mode,
-                visibleMonth = visibleMonth,
-                selectedDate = selectedDate,
-                today = today,
-                recordDates = recordDates,
-                pageDirection = pageDirection,
-                onDateClick = selectDate
-            )
+            AnimatedContent(
+                targetState = mode,
+                transitionSpec = {
+                    fadeIn(tween(CALENDAR_ANIMATION_DURATION_MS))
+                        .togetherWith(fadeOut(tween(CALENDAR_ANIMATION_DURATION_MS)))
+                },
+                modifier = Modifier.animateContentSize(tween(CALENDAR_ANIMATION_DURATION_MS)),
+                label = "Calendar mode"
+            ) { targetMode ->
+                if (targetMode == CalendarMode.Month) {
+                    MonthPager(
+                        targetMonth = visibleMonth,
+                        selectedDate = selectedDate,
+                        today = today,
+                        recordDates = recordDates,
+                        onDisplayedMonthChange = { displayedMonth = it },
+                        onSettled = onMonthSettled,
+                        onDateClick = onDateClick
+                    )
+                } else {
+                    WeekPager(
+                        targetWeekStart = visibleWeekStart,
+                        selectedDate = selectedDate,
+                        today = today,
+                        recordDates = recordDates,
+                        onDisplayedWeekChange = { displayedWeekStart = it },
+                        onSettled = onWeekSettled,
+                        onDateClick = onDateClick
+                    )
+                }
+            }
         }
     }
 }
@@ -144,6 +161,7 @@ fun HomeCalendar(
 private fun CalendarToolbar(
     mode: CalendarMode,
     visibleMonth: YearMonth,
+    visibleWeekStart: LocalDate,
     selectedDate: LocalDate,
     today: LocalDate,
     onModeChange: (CalendarMode) -> Unit,
@@ -161,8 +179,8 @@ private fun CalendarToolbar(
         animationSpec = tween(CALENDAR_ANIMATION_DURATION_MS),
         label = "Today button color"
     )
-    val title = remember(mode, visibleMonth, selectedDate) {
-        if (mode == CalendarMode.Month) visibleMonth.format(monthFormatter) else weekTitle(selectedDate)
+    val title = remember(mode, visibleMonth, visibleWeekStart) {
+        if (mode == CalendarMode.Month) visibleMonth.format(monthFormatter) else weekTitle(visibleWeekStart)
     }
 
     Row(
@@ -222,54 +240,135 @@ private fun WeekHeader() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AnimatedCalendarContent(
-    mode: CalendarMode,
-    visibleMonth: YearMonth,
+private fun MonthPager(
+    targetMonth: YearMonth,
     selectedDate: LocalDate,
     today: LocalDate,
     recordDates: Set<LocalDate>,
-    pageDirection: CalendarPageDirection,
+    onDisplayedMonthChange: (YearMonth) -> Unit,
+    onSettled: (expected: YearMonth, settled: YearMonth) -> Unit,
     onDateClick: (LocalDate) -> Unit,
 ) {
-    AnimatedContent(
-        targetState = CalendarContentKey(
-            mode = mode,
-            selectedDate = selectedDate,
-            visibleMonth = visibleMonth
-        ),
-        transitionSpec = {
-            val animationSpec = tween<IntOffset>(CALENDAR_ANIMATION_DURATION_MS)
-            val fadeSpec = tween<Float>(CALENDAR_ANIMATION_DURATION_MS)
-            when (pageDirection) {
-                CalendarPageDirection.Next -> {
-                    (slideInHorizontally(animationSpec) { 48 } + fadeIn(fadeSpec))
-                        .togetherWith(slideOutHorizontally(animationSpec) { -48 } + fadeOut(fadeSpec))
-                }
-                CalendarPageDirection.Previous -> {
-                    (slideInHorizontally(animationSpec) { -48 } + fadeIn(fadeSpec))
-                        .togetherWith(slideOutHorizontally(animationSpec) { 48 } + fadeOut(fadeSpec))
-                }
-                CalendarPageDirection.Neutral -> {
-                    fadeIn(fadeSpec).togetherWith(fadeOut(fadeSpec))
+    val targetPage = targetMonth.toMonthPage()
+    val pagerState = rememberPagerState(initialPage = targetPage, pageCount = { monthPageCount })
+    val currentTarget by rememberUpdatedState(targetMonth)
+    val currentOnSettled by rememberUpdatedState(onSettled)
+    var gestureOrigin by remember { mutableStateOf<YearMonth?>(null) }
+
+    LaunchedEffect(targetPage) {
+        if (pagerState.currentPage == targetPage && !pagerState.isScrollInProgress) return@LaunchedEffect
+        if (abs(pagerState.currentPage - targetPage) <= 1) {
+            pagerState.animateScrollToPage(targetPage)
+        } else {
+            pagerState.scrollToPage(targetPage)
+        }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }
+            .distinctUntilChanged()
+            .collect { onDisplayedMonthChange(it.toYearMonth()) }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (scrolling) {
+                    gestureOrigin = currentTarget
+                } else {
+                    val expected = gestureOrigin
+                    gestureOrigin = null
+                    if (expected != null) {
+                        currentOnSettled(expected, pagerState.settledPage.toYearMonth())
+                    }
                 }
             }
-        },
-        label = "Calendar content"
-    ) { contentKey ->
-        if (contentKey.mode == CalendarMode.Month) {
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val cellWidth = (maxWidth - 36.dp) / 7
+        HorizontalPager(
+            state = pagerState,
+            beyondViewportPageCount = 1,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(cellWidth * 6 + 40.dp)
+        ) { page ->
             MonthGrid(
-                visibleMonth = contentKey.visibleMonth,
-                selectedDate = contentKey.selectedDate,
+                visibleMonth = page.toYearMonth(),
+                selectedDate = selectedDate,
                 today = today,
                 recordDates = recordDates,
+                enabled = !pagerState.isScrollInProgress,
                 onDateClick = onDateClick
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WeekPager(
+    targetWeekStart: LocalDate,
+    selectedDate: LocalDate,
+    today: LocalDate,
+    recordDates: Set<LocalDate>,
+    onDisplayedWeekChange: (LocalDate) -> Unit,
+    onSettled: (expected: LocalDate, settled: LocalDate) -> Unit,
+    onDateClick: (LocalDate) -> Unit,
+) {
+    val normalizedTarget = targetWeekStart.startOfWeek()
+    val targetPage = normalizedTarget.toWeekPage()
+    val pagerState = rememberPagerState(initialPage = targetPage, pageCount = { weekPageCount })
+    val currentTarget by rememberUpdatedState(normalizedTarget)
+    val currentOnSettled by rememberUpdatedState(onSettled)
+    var gestureOrigin by remember { mutableStateOf<LocalDate?>(null) }
+
+    LaunchedEffect(targetPage) {
+        if (pagerState.currentPage == targetPage && !pagerState.isScrollInProgress) return@LaunchedEffect
+        if (abs(pagerState.currentPage - targetPage) <= 1) {
+            pagerState.animateScrollToPage(targetPage)
         } else {
+            pagerState.scrollToPage(targetPage)
+        }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }
+            .distinctUntilChanged()
+            .collect { onDisplayedWeekChange(it.toWeekStart()) }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (scrolling) {
+                    gestureOrigin = currentTarget
+                } else {
+                    val expected = gestureOrigin
+                    gestureOrigin = null
+                    if (expected != null) {
+                        currentOnSettled(expected, pagerState.settledPage.toWeekStart())
+                    }
+                }
+            }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val cellWidth = (maxWidth - 36.dp) / 7
+        HorizontalPager(
+            state = pagerState,
+            beyondViewportPageCount = 1,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(cellWidth)
+        ) { page ->
             WeekRow(
-                selectedDate = contentKey.selectedDate,
+                weekStart = page.toWeekStart(),
+                selectedDate = selectedDate,
                 today = today,
                 recordDates = recordDates,
+                enabled = !pagerState.isScrollInProgress,
                 onDateClick = onDateClick
             )
         }
@@ -282,6 +381,7 @@ private fun MonthGrid(
     selectedDate: LocalDate,
     today: LocalDate,
     recordDates: Set<LocalDate>,
+    enabled: Boolean,
     onDateClick: (LocalDate) -> Unit,
 ) {
     val rows = remember(visibleMonth) { visibleMonth.calendarRows() }
@@ -299,6 +399,7 @@ private fun MonthGrid(
                                 selected = date == selectedDate,
                                 today = today,
                                 hasRecord = date in recordDates,
+                                enabled = enabled,
                                 onClick = { onDateClick(date) }
                             )
                         }
@@ -311,14 +412,15 @@ private fun MonthGrid(
 
 @Composable
 private fun WeekRow(
+    weekStart: LocalDate,
     selectedDate: LocalDate,
     today: LocalDate,
     recordDates: Set<LocalDate>,
+    enabled: Boolean,
     onDateClick: (LocalDate) -> Unit,
 ) {
-    val weekDates = remember(selectedDate) {
-        val start = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-        List(7) { offset -> start.plusDays(offset.toLong()) }
+    val weekDates = remember(weekStart) {
+        List(7) { offset -> weekStart.plusDays(offset.toLong()) }
     }
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -329,6 +431,7 @@ private fun WeekRow(
                     selected = date == selectedDate,
                     today = today,
                     hasRecord = date in recordDates,
+                    enabled = enabled,
                     onClick = { onDateClick(date) }
                 )
             }
@@ -342,6 +445,7 @@ private fun CalendarDayCell(
     selected: Boolean,
     today: LocalDate,
     hasRecord: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     val targetBackground = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
@@ -375,7 +479,7 @@ private fun CalendarDayCell(
         modifier = Modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled && date in minCalendarDate..maxCalendarDate, onClick = onClick)
             .graphicsLayer {
                 scaleX = selectedScale
                 scaleY = selectedScale
@@ -409,49 +513,6 @@ private fun YearMonth.calendarRows(): List<List<LocalDate?>> {
     return dates.chunked(7).map { row -> row + List(7 - row.size) { null } }
 }
 
-private fun Modifier.calendarSwipe(
-    thresholdPx: Float,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-): Modifier = pointerInput(thresholdPx, onPrevious, onNext) {
-    var totalX = 0f
-    var totalY = 0f
-    detectDragGestures(
-        onDragStart = {
-            totalX = 0f
-            totalY = 0f
-        },
-        onDragEnd = {
-            val isHorizontalSwipe = abs(totalX) > thresholdPx && abs(totalX) > abs(totalY) * 1.5f
-            if (isHorizontalSwipe) {
-                if (totalX < 0f) onNext() else onPrevious()
-            }
-            totalX = 0f
-            totalY = 0f
-        },
-        onDragCancel = {
-            totalX = 0f
-            totalY = 0f
-        },
-        onDrag = { _, dragAmount ->
-            totalX += dragAmount.x
-            totalY += dragAmount.y
-        }
-    )
-}
-
-private enum class CalendarPageDirection {
-    Previous,
-    Next,
-    Neutral,
-}
-
-private data class CalendarContentKey(
-    val mode: CalendarMode,
-    val selectedDate: LocalDate,
-    val visibleMonth: YearMonth,
-)
-
 private val monthFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy年M月", Locale.CHINA)
 
 private fun weekTitle(anchor: LocalDate): String {
@@ -459,3 +520,20 @@ private fun weekTitle(anchor: LocalDate): String {
     val end = start.plusDays(6)
     return "${start.format(DateTimeFormatter.ofPattern("M/d"))} - ${end.format(DateTimeFormatter.ofPattern("M/d"))}"
 }
+
+private fun YearMonth.toMonthPage(): Int =
+    ChronoUnit.MONTHS.between(baseCalendarMonth.atDay(1), atDay(1))
+        .coerceIn(0L, (monthPageCount - 1).toLong())
+        .toInt()
+
+private fun Int.toYearMonth(): YearMonth = baseCalendarMonth.plusMonths(toLong())
+
+private fun LocalDate.toWeekPage(): Int =
+    ChronoUnit.WEEKS.between(baseCalendarWeek, startOfWeek())
+        .coerceIn(0L, (weekPageCount - 1).toLong())
+        .toInt()
+
+private fun Int.toWeekStart(): LocalDate = baseCalendarWeek.plusWeeks(toLong())
+
+private fun LocalDate.startOfWeek(): LocalDate =
+    with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))

@@ -1,8 +1,16 @@
 ﻿package com.example.fitnessrecord.ui.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -66,6 +74,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -143,6 +155,7 @@ fun SettingsRoute(
     onClear: () -> Unit,
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.Home) }
+    val sharedAxisOffset = with(LocalDensity.current) { 24.dp.roundToPx() }
 
     if (section != SettingsSection.Home) {
         BackHandler { section = SettingsSection.Home }
@@ -163,7 +176,27 @@ fun SettingsRoute(
             )
         }
     ) { contentPadding ->
-        when (section) {
+        AnimatedContent(
+            targetState = section,
+            contentKey = { it },
+            transitionSpec = {
+                if (initialState == SettingsSection.Home) {
+                    (slideInHorizontally(tween(220)) { sharedAxisOffset } + fadeIn(tween(180)))
+                        .togetherWith(slideOutHorizontally(tween(180)) { -sharedAxisOffset } + fadeOut(tween(140)))
+                } else {
+                    (slideInHorizontally(tween(220)) { -sharedAxisOffset } + fadeIn(tween(180)))
+                        .togetherWith(slideOutHorizontally(tween(180)) { sharedAxisOffset } + fadeOut(tween(140)))
+                }
+            },
+            label = "Settings section"
+        ) { targetSection ->
+        val sectionModifier = if (targetSection == section) {
+            Modifier.fillMaxSize().zIndex(1f)
+        } else {
+            Modifier.fillMaxSize().zIndex(0f).clearAndSetSemantics { invisibleToUser() }
+        }
+        Box(modifier = sectionModifier) {
+        when (targetSection) {
             SettingsSection.Home -> SettingsHomeScreen(
                 innerPadding = contentPadding,
                 themeColorKey = themeColorKey,
@@ -226,6 +259,8 @@ fun SettingsRoute(
             )
         }
     }
+}
+}
 }
 
 @Composable
@@ -800,8 +835,8 @@ private fun RuntimeLogCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
+        }
     }
-}
 
 @Composable
 private fun ThemeSettingsScreen(

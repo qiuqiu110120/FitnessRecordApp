@@ -1,7 +1,15 @@
 ﻿package com.example.fitnessrecord.ui.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,8 +37,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,8 +46,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.fitnessrecord.model.WorkoutDay
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -51,10 +67,22 @@ fun HomeRoute(
     viewModel: HomeViewModel,
     openActionSettingsRequest: Int = 0,
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val editorDraft = uiState.editorDraft
     var showActionSettings by rememberSaveable { mutableStateOf(false) }
     var showDeleteDayConfirm by rememberSaveable { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.flushDraft()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.flushDraft()
+        }
+    }
 
     LaunchedEffect(openActionSettingsRequest) {
         if (openActionSettingsRequest > 0) {
@@ -62,9 +90,36 @@ fun HomeRoute(
         }
     }
 
-    when {
-        showActionSettings -> {
-            BackHandler { showActionSettings = false }
+    val pageState = when {
+        showActionSettings -> HomePageState(HomePage.ActionLibrary)
+        uiState.editingDate != null && editorDraft != null -> HomePageState(HomePage.Editor, editorDraft)
+        else -> HomePageState(HomePage.Home)
+    }
+    val sharedAxisOffset = with(LocalDensity.current) { 24.dp.roundToPx() }
+
+    AnimatedContent(
+        targetState = pageState,
+        contentKey = { it.page },
+        transitionSpec = {
+            if (targetState.page.depth > initialState.page.depth) {
+                (slideInHorizontally(tween(220)) { sharedAxisOffset } + fadeIn(tween(180)))
+                    .togetherWith(slideOutHorizontally(tween(180)) { -sharedAxisOffset } + fadeOut(tween(140)))
+            } else {
+                (slideInHorizontally(tween(220)) { -sharedAxisOffset } + fadeIn(tween(180)))
+                    .togetherWith(slideOutHorizontally(tween(180)) { sharedAxisOffset } + fadeOut(tween(140)))
+            }
+        },
+        label = "Home page"
+    ) { target ->
+        val pageModifier = if (target.page == pageState.page) {
+            Modifier.fillMaxSize().zIndex(1f)
+        } else {
+            Modifier.fillMaxSize().zIndex(0f).clearAndSetSemantics { invisibleToUser() }
+        }
+        Box(modifier = pageModifier) {
+        when (target.page) {
+        HomePage.ActionLibrary -> {
+            BackHandler(enabled = target.page == pageState.page) { showActionSettings = false }
             Scaffold(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
@@ -102,13 +157,14 @@ fun HomeRoute(
             }
         }
 
-        uiState.editingDate != null && editorDraft != null -> {
-            BackHandler { viewModel.requestCloseEditor() }
+        HomePage.Editor -> {
+            val targetDraft = target.editorDraft ?: return@AnimatedContent
+            BackHandler(enabled = target.page == pageState.page) { viewModel.requestCloseEditor() }
             Scaffold(
                 modifier = Modifier.padding(innerPadding),
                 topBar = {
                     TopAppBar(
-                        title = { Text(editorDraft.date.format(editorTitleFormatter)) },
+                        title = { Text(targetDraft.date.format(editorTitleFormatter)) },
                         navigationIcon = {
                             IconButton(onClick = viewModel::requestCloseEditor) {
                                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
@@ -124,7 +180,7 @@ fun HomeRoute(
             ) { editorPadding ->
                 WorkoutEditorScreen(
                     innerPadding = editorPadding,
-                    day = editorDraft,
+                    day = targetDraft,
                     saveStatus = uiState.saveStatus,
                     folders = uiState.customActionFolders,
                     selectedFolderId = uiState.selectedActionFolderId,
@@ -151,7 +207,7 @@ fun HomeRoute(
             }
         }
 
-        else -> {
+        HomePage.Home -> {
             HomeScreen(
                 innerPadding = innerPadding,
                 uiState = uiState,
@@ -161,9 +217,13 @@ fun HomeRoute(
                 onNextPage = viewModel::goToNextCalendarPage,
                 onToday = viewModel::goToToday,
                 onSelectDate = viewModel::selectDate,
+                onVisibleMonthSettled = viewModel::settleVisibleMonth,
+                onVisibleWeekSettled = viewModel::settleVisibleWeek,
                 onEditDate = { viewModel.startEditing(uiState.selectedWorkoutDay) }
             )
         }
+    }
+    }
     }
 
     if (showDeleteDayConfirm) {
@@ -190,6 +250,17 @@ fun HomeRoute(
     }
 }
 
+private enum class HomePage(val depth: Int) {
+    Home(0),
+    Editor(1),
+    ActionLibrary(1),
+}
+
+private data class HomePageState(
+    val page: HomePage,
+    val editorDraft: WorkoutEditorDraft? = null,
+)
+
 @Composable
 private fun HomeScreen(
     innerPadding: PaddingValues,
@@ -200,6 +271,8 @@ private fun HomeScreen(
     onNextPage: () -> Unit,
     onToday: () -> Unit,
     onSelectDate: (java.time.LocalDate) -> Unit,
+    onVisibleMonthSettled: (java.time.YearMonth, java.time.YearMonth) -> Unit,
+    onVisibleWeekSettled: (java.time.LocalDate, java.time.LocalDate) -> Unit,
     onEditDate: () -> Unit,
 ) {
     LazyColumn(
@@ -215,13 +288,16 @@ private fun HomeScreen(
             HomeCalendar(
                 mode = uiState.calendarMode,
                 visibleMonth = uiState.visibleMonth,
+                visibleWeekStart = uiState.visibleWeekStart,
                 selectedDate = uiState.selectedDate,
                 recordDates = uiState.recordDates,
                 onModeChange = onCalendarModeChange,
                 onPrevious = onPreviousPage,
                 onNext = onNextPage,
                 onToday = onToday,
-                onDateClick = onSelectDate
+                onDateClick = onSelectDate,
+                onMonthSettled = onVisibleMonthSettled,
+                onWeekSettled = onVisibleWeekSettled
             )
         }
 

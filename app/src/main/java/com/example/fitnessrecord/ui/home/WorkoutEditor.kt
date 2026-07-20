@@ -12,11 +12,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.AlertDialog
@@ -37,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +51,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +90,8 @@ fun WorkoutEditorScreen(
     onRetrySave: () -> Unit,
     onClearMessage: () -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val addSetCounts = remember { mutableStateMapOf<Long, Int>() }
     val actionIds = day.actions.map { it.id }
     val editorStateKey = day.date.toString()
@@ -177,6 +189,7 @@ fun WorkoutEditorScreen(
                 .coerceIn(WorkoutEditorLimits.MIN_ADD_SETS, WorkoutEditorLimits.MAX_ADD_SETS)
             val isExpanded = action.id in expandedActionIds
             WorkoutActionCard(
+                modifier = Modifier.animateItem(),
                 action = action,
                 addSetCount = addSetCount,
                 isExpanded = isExpanded,
@@ -196,8 +209,16 @@ fun WorkoutEditorScreen(
                 onNameChange = { onActionNameChange(action.id, it) },
                 onAddSets = { onAddSets(action.id, addSetCount) },
                 onSetChange = { set, reps, weight -> onSetChange(action.id, set.id, reps, weight) },
-                onDeleteSet = { set -> onDeleteSet(action.id, set.id) },
-                onDeleteAction = { onDeleteAction(action.id) }
+                onDeleteSet = { set ->
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                    onDeleteSet(action.id, set.id)
+                },
+                onDeleteAction = {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                    onDeleteAction(action.id)
+                }
             )
         }
 
@@ -576,6 +597,7 @@ private fun EmptyWorkoutCard() {
 
 @Composable
 private fun WorkoutActionCard(
+    modifier: Modifier = Modifier,
     action: WorkoutActionDraft,
     addSetCount: Int,
     isExpanded: Boolean,
@@ -590,7 +612,10 @@ private fun WorkoutActionCard(
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
     val summary = action.summary()
 
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -602,8 +627,12 @@ private fun WorkoutActionCard(
                 onToggleExpanded = { onExpandedChange(!isExpanded) }
             )
 
-            if (!isExpanded) return@Column
-
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(tween(180)) + fadeIn(tween(140)),
+                exit = shrinkVertically(tween(180)) + fadeOut(tween(120))
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = action.name,
@@ -627,6 +656,7 @@ private fun WorkoutActionCard(
             }
 
             action.sets.forEachIndexed { index, set ->
+                key(set.id) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -655,6 +685,7 @@ private fun WorkoutActionCard(
                     IconButton(onClick = { onDeleteSet(set) }) {
                         Icon(Icons.Outlined.Delete, contentDescription = "删除组")
                     }
+                }
                 }
             }
 
@@ -700,6 +731,8 @@ private fun WorkoutActionCard(
                     Text(addSetButtonText(addSetCount))
                 }
             }
+                }
+            }
         }
     }
 
@@ -734,6 +767,11 @@ private fun WorkoutActionSummaryHeader(
     isExpanded: Boolean,
     onToggleExpanded: () -> Unit,
 ) {
+    val expandRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = tween(180),
+        label = "Action expand icon"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -784,7 +822,8 @@ private fun WorkoutActionSummaryHeader(
         }
         IconButton(onClick = onToggleExpanded) {
             Icon(
-                imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                imageVector = Icons.Outlined.ExpandMore,
+                modifier = Modifier.graphicsLayer { rotationZ = expandRotation },
                 contentDescription = if (isExpanded) "收起动作" else "展开动作"
             )
         }

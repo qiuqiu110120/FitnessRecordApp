@@ -27,6 +27,7 @@ data class AppSettingsUiState(
 class AppSettingsViewModel(
     private val settingsRepository: SettingsRepository,
     private val updateRepository: UpdateRepository,
+    private val checkUpdatesOnStart: Boolean = true,
 ) : ViewModel() {
     private val updateUiState = MutableStateFlow(UpdateUiState())
 
@@ -42,7 +43,9 @@ class AppSettingsViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettingsUiState())
 
     init {
-        checkForUpdates(showUpToDateMessage = false)
+        if (checkUpdatesOnStart) {
+            checkForUpdates(showUpToDateMessage = false)
+        }
     }
 
     fun checkForUpdates(showUpToDateMessage: Boolean = true) {

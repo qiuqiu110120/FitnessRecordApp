@@ -17,6 +17,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -26,8 +33,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,7 +45,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.fitnessrecord.ui.ai.AiAdviceRoute
 import com.example.fitnessrecord.ui.ai.AiAdviceViewModel
 import com.example.fitnessrecord.ui.ai.AiSettingsViewModel
@@ -64,7 +76,7 @@ class MainActivity : ComponentActivity() {
             val settingsViewModel: AppSettingsViewModel = viewModel(
                 factory = app.appContainer.appSettingsViewModelFactory
             )
-            val settingsState by settingsViewModel.uiState.collectAsState()
+            val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
             FitnessRecordTheme(themeColorKey = settingsState.resolvedThemeColorKey) {
                 if (settingsState.isThemeLoaded) {
                     FitnessRecordApp(
@@ -94,12 +106,12 @@ private fun FitnessRecordApp(
     appSettingsViewModel: AppSettingsViewModel,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
-    var openActionSettingsRequest by rememberSaveable { mutableStateOf(0) }
+    var openActionSettingsRequest by rememberSaveable { mutableIntStateOf(0) }
     val tabStateHolder = rememberSaveableStateHolder()
     val context = LocalContext.current
     val activity = context as? Activity
-    var lastBackPressedAt by remember { mutableStateOf(0L) }
-    val appSettingsState by appSettingsViewModel.uiState.collectAsState()
+    var lastBackPressedAt by remember { mutableLongStateOf(0L) }
+    val appSettingsState by appSettingsViewModel.uiState.collectAsStateWithLifecycle()
 
     val homeViewModel: HomeViewModel = viewModel(factory = appContainer.homeViewModelFactory)
     val aiAdviceViewModel: AiAdviceViewModel = viewModel(factory = appContainer.aiAdviceViewModelFactory)
@@ -231,8 +243,28 @@ private fun FitnessRecordApp(
             }
         }
     ) { innerPadding ->
-        tabStateHolder.SaveableStateProvider(selectedTab) {
-            when (selectedTab) {
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                fadeIn(tween(durationMillis = 150, delayMillis = 60))
+                    .togetherWith(fadeOut(tween(durationMillis = 90)))
+            },
+            contentKey = { it },
+            label = "App tab"
+        ) { tab ->
+            val accessibilityModifier = if (tab == selectedTab) {
+                Modifier
+            } else {
+                Modifier.clearAndSetSemantics { invisibleToUser() }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(if (tab == selectedTab) 1f else 0f)
+                    .then(accessibilityModifier)
+            ) {
+            tabStateHolder.SaveableStateProvider(tab) {
+            when (tab) {
                 AppTab.Home -> HomeRoute(
                     innerPadding = innerPadding,
                     viewModel = homeViewModel,
@@ -245,9 +277,9 @@ private fun FitnessRecordApp(
                 )
 
                 AppTab.Settings -> {
-                    val aiState by aiAdviceViewModel.uiState.collectAsState()
-                    val settingsState by aiSettingsViewModel.uiState.collectAsState()
-                    val homeState by homeViewModel.uiState.collectAsState()
+                    val tokenUsage by aiAdviceViewModel.tokenUsage.collectAsStateWithLifecycle()
+                    val settingsState by aiSettingsViewModel.uiState.collectAsStateWithLifecycle()
+                    val quickImportState by homeViewModel.quickImportState.collectAsStateWithLifecycle()
                     SettingsRoute(
                         innerPadding = innerPadding,
                         themeColorKey = settingsState.themeColorKey,
@@ -258,11 +290,11 @@ private fun FitnessRecordApp(
                         testMessage = settingsState.testMessage,
                         promptConfig = settingsState.promptDraft,
                         promptMessage = settingsState.promptMessage,
-                        tokenUsage = aiState.tokenUsage,
+                        tokenUsage = tokenUsage,
                         hasUnsavedAiConfig = settingsState.hasUnsavedChanges,
                         runtimeLogText = runtimeLogText,
                         hasPreviousCrash = hasPreviousCrash,
-                        quickImportState = homeState.importState,
+                        quickImportState = quickImportState,
                         onDismissPreviousCrash = {
                             AppLogger.clearPreviousCrash()
                             hasPreviousCrash = AppLogger.hasPreviousCrash()
@@ -306,6 +338,8 @@ private fun FitnessRecordApp(
                         onClear = aiSettingsViewModel::clear
                     )
                 }
+            }
+            }
             }
         }
     }

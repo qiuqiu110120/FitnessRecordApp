@@ -3,6 +3,9 @@ package com.example.fitnessrecord
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -54,8 +57,10 @@ class AppContainer(context: Context) {
         json = Json { ignoreUnknownKeys = true }
     )
 
-    val homeViewModelFactory: ViewModelProvider.Factory = simpleViewModelFactory {
-        HomeViewModel(workoutRepository)
+    val homeViewModelFactory: ViewModelProvider.Factory = viewModelFactory {
+        initializer {
+            HomeViewModel(workoutRepository, createSavedStateHandle())
+        }
     }
 
     val aiAdviceViewModelFactory: ViewModelProvider.Factory = simpleViewModelFactory {
@@ -67,7 +72,11 @@ class AppContainer(context: Context) {
     }
 
     val appSettingsViewModelFactory: ViewModelProvider.Factory = simpleViewModelFactory {
-        AppSettingsViewModel(settingsRepository, updateRepository)
+        AppSettingsViewModel(
+            settingsRepository = settingsRepository,
+            updateRepository = updateRepository,
+            checkUpdatesOnStart = !BuildConfig.IS_BENCHMARK
+        )
     }
 }
 
